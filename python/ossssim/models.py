@@ -144,7 +144,7 @@ class ResultsFile:
         :type seed: int
         """
         with open(self.filename, 'w') as f_detect:
-            f_detect.write(f"# Seed = {seed:10d}\n")
+            f_detect.write(f"# Seed = {seed}\n")
             f_detect.write(f"# Epoch of elements: JD = {self.epoch}\n")
             f_detect.write(f"# Longitude of Neptune: longitude_neptune = {self.longitude_neptune}\n")
             if self.colors is not None:
@@ -462,6 +462,7 @@ class Parametric(ABC):
                  epoch: Quantity = 2456839.5 * units.day,
                  j: int = 0,
                  k: int = 0,
+                 comp: str = 'Cls',
                  longitude_neptune: Quantity = 5.876 * units.rad,
                  **kwargs) -> None:
         """
@@ -487,6 +488,8 @@ class Parametric(ABC):
         self.seed = seed
         self.size = size
         self.distributions = distributions.Distributions(self.seed, self.size)
+        print(self.size)
+        print(self.distributions)
         self.h_distribution = HDistribution(self.distributions.power_knee_divot,
                                             **dict([('alpha_bright', 1.1),
                                                     ('alpha_faint', 0.4),
@@ -497,9 +500,9 @@ class Parametric(ABC):
         self.k = k
         self.longitude_neptune = longitude_neptune  # Neptune's mean longitude on 1 Jan 2013
         self.a_neptune = 30.07 * units.au
-        self.comp = "Cls"
+        self.comp = comp.replace(" ","_")
         self.epoch = epoch
-        self.rebound_archive = f"Rebound_Archive_{self.seed}.bin"
+        self.rebound_archive = f"Rebound_Archive.bin"
 
     @property
     def sim(self):
@@ -841,7 +844,7 @@ class Resonant(Parametric):
     def __init__(self,
                  size=10**6,
                  seed=123456789,
-                 component='Res',
+                 comp='Res',
                  longitude_neptune=5.876 * units.rad,
                  epoch=2456839.5 * units.day,
                  j=0,
@@ -849,7 +852,7 @@ class Resonant(Parametric):
                  res_amp_low=0*units.deg,
                  res_amp_mid=5*units.deg,
                  res_amp_high=10*units.deg,
-                 res_centre=0*units.deg):
+                 res_centre=0*units.deg, **kwargs):
         """
         Setup the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
 
@@ -876,7 +879,7 @@ class Resonant(Parametric):
 
         """
         super().__init__(size=size, seed=seed, epoch=epoch, longitude_neptune=longitude_neptune,
-                         j=j, k=k)
+                         j=j, k=k, comp=comp, **kwargs)
 
         if j is None or k is None:
             ValueError(f"Resonance j/k are not None for Resonant Model objects")
@@ -885,7 +888,6 @@ class Resonant(Parametric):
         self.res_amp_high = res_amp_high
         self.res_amp_mid = res_amp_mid
         self.res_centre = res_centre
-        self.comp = component.replace(" ", "_")
 
     @property
     def res_amp_low(self):
