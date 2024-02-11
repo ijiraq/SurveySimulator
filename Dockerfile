@@ -28,7 +28,7 @@ RUN pip3 install cadctap
 RUN pip3 install vos
 RUN pip3 install numpy
 RUN pip3 install scipy
-RUN pip3 install astropy
+RUN pip3 install astropy<6
 RUN pip3 install --pre astroquery
 RUN pip3 install matplotlib
 RUN pip3 install f90wrap
