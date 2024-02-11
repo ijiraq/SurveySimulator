@@ -15,6 +15,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build and Push the SSIM Docker image
-      run: docker build --target deploy --build-arg VERSION=python -t ssim:python -f Dockerfile .
-      run: docker login --username ${{ secrets.IMAGES_CANFAR_LOGIN}} --password ${{ IMAGES_CANFAR_TOKEN}}
-      run: docker push ssim:python
+      run: |
+      docker build --target deploy --build-arg VERSION=python -t ssim:python -f Dockerfile .
+      docker login --username ${{ secrets.IMAGES_CANFAR_LOGIN}} --password ${{ IMAGES_CANFAR_TOKEN}}
+      docker push ssim:python
+    -
