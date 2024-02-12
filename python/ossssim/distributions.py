@@ -3,6 +3,8 @@ A module of methods that useful for creating distributions of values used to mod
 """
 import numpy
 from . import definitions
+from . import funcs
+
 
 class HDistribution:
     """
@@ -269,7 +271,6 @@ class Distributions:
         """
         return self.rnd_gen.triangular(minimum, mid, maximum, self.size)
 
-
     def linear(self, min, max):
         """
         Returns a set of random values that have max probability at 0 droping to min probabilty at 1
@@ -281,6 +282,43 @@ class Distributions:
         x = x[i]
         f = lambda l: numpy.interp(l, y.cumsum() / y.sum(), x)
         return f(self.rnd_gen.random(self.size))
+
+    def cold_sfd(self, h_min:float, h_max:float):
+        """
+        Return a set of H values drawn from the tapered powerlaw SFD described in Kavelaars et al. 2021
+        """
+        # Merge them and then accumulate and normalize
+        fp = numpy.linspace(h_min, h_max, num=1000)
+        xp = funcs.cold_cfd(fp)
+        cdf = xp.cumsum()
+        xp = cdf / cdf[-1]
+
+        # Generates an array (of a size given in our instance initialization) of uniformly distributed random values
+        # ranging from the minimum value of our normalized cdf (xp[0] which is >=0) to the maximum value (1).
+        interpolator = self.rnd_gen.uniform(xp[0], xp[-1], self.size)
+
+        # Calls the interpolation function to generate a randomized array, corresponding to the probability
+        # density, by interpolating between the given points.
+        return numpy.interp(interpolator, xp, fp)
+
+    def implanted_sfd(self, h_min:float, h_max:float):
+        """
+        Return a set of H values distributed according to the PL+PL+taperred+PL SFD!  From Petit et al. 2023 and
+        Petit et al. 2022
+        """
+        fp = numpy.linspace(h_min, h_max, num=1000)
+        xp = funcs.implanted_cfd(fp)
+        # Merge them and then accumulate and normalize
+        cdf = xp.cumsum()
+        xp = cdf / cdf[-1]
+
+        # Generates an array (of a size given in our instance initialization) of uniformly distributed random values
+        # ranging from the minimum value of our normalized cdf (xp[0] which is >=0) to the maximum value (1).
+        interpolator = self.rnd_gen.uniform(xp[0], xp[-1], self.size)
+
+        # Calls the interpolation function to generate a randomized array, corresponding to the probability
+        # density, by interpolating between the given points.
+        return numpy.interp(interpolator, xp, fp)
 
     def power_knee_divot(self, alpha_bright, h_max, h_min=1., h_break=None, alpha_faint=None, contrast_ratio=1.):
         """

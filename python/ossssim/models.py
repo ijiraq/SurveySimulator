@@ -30,7 +30,7 @@ def get_floats_in_str(line):
     """
     Scan a string (line) and return all float like strings as array of floats.
 
-    Converts floats expressed as fortran doubles like '1.0d0' to '1.0e0' before conversion.
+    Convert floats expressed as fortran doubles like '1.0d0' to '1.0e0' before conversion.
     """
     values = RE_FLOAT.findall(line)
 
@@ -175,7 +175,8 @@ class ResultsFile:
 
 class ModelOutputFile(ResultsFile):
     """
-    Output format used to store the input model, used when model is parametric and you want to keep a record of input for diagnostics
+    Output format used to store the input model, used when model is parametric,
+    and you want to keep a record of input for diagnostics
     """
 
     colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
@@ -376,7 +377,8 @@ class ModelFile(Iterable):
     @property
     def targets(self):
         """
-        targets set by looping over the entire file and returning a 'QTable'.  This can be used when you want access to the
+        targets set by looping over the entire file and returning a 'QTable'.
+        This can be used when you want access to the
         entire table of data rather than just reading one-line at a time.
         """
 
@@ -400,44 +402,12 @@ class ModelFile(Iterable):
 
         return self._targets
 
-    @property
-    def f(self):
-        """True anomaly of the orbit.  If the mean anomaly at detection (Mt) exists than use that
-        else use the mean anomaly at model epoch
-
-        Returns:
-            (float): true anomaly
-        """
-        if self._f is None:
-            e = self.targets['e']
-            if 'M' not in self.targets.colnames:
-                ValueError("No mean anomaly (M) in model?")
-            if 'Mt' in self.targets.colnames:
-                m = self.targets['Mt']
-            else:
-                m = self.targets['M']
-            big_e = m - self.targets['e'] * numpy.sin(m) * units.rad
-            converged = numpy.zeros(len(self.targets)) > 0
-            f1 = numpy.zeros(len(self.targets)) * units.rad
-            fp = numpy.ones(len(self.targets))
-            n = 0
-            while n < 1**6 and numpy.sum(~converged) > 0:
-                f1[~converged] = big_e[~converged] - e[~converged] * numpy.sin(big_e[~converged]) * units.rad - m[~converged]
-                f1[converged] = 0 * units.rad
-                fp[~converged] = (1.0 - e[~converged] * numpy.sin(big_e[~converged]))
-                fp[converged] = 1
-                delta = -f1 / fp
-                big_e = big_e + delta
-                n += 1
-                converged = delta < (1e-8 * units.rad)
-            self._f = (2. * numpy.arctan(((1. + e) / (1. - e)) ** 0.5 * numpy.tan(big_e / 2.)))
-        return self._f
-
 
 class HDistribution:
     """
     Provide a class to describe the size distribution of the object being simulated.
     """
+
     def __init__(self, func, **kwargs):
         """
         Args:
@@ -453,20 +423,21 @@ class HDistribution:
 
 class Parametric(ABC):
     """
-    This abstract class defines methods needed to build a parametric Outer Solar System model for use as a model input for OSSSSim
+    This abstract class defines methods needed to build a parametric
+    Outer Solar System model for use as a model input for OSSSSim
     """
 
     def __init__(self,
                  size: int = 1000000,
                  seed: int = 123456789,
                  epoch: Quantity = 2456839.5 * units.day,
-                 j: int = 0,
-                 k: int = 0,
                  comp: str = 'Cls',
                  longitude_neptune: Quantity = 5.876 * units.rad,
+                 H_min = -1,
+                 H_max = 11,
                  **kwargs) -> None:
         """
-        Setup the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
+        Set up the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
 
         Args:
             size: Determines size of the arrays to be generated (default=10^6).
@@ -487,25 +458,17 @@ class Parametric(ABC):
             seed = numpy.random.randint(1, 999999999)
         self.seed = seed
         self.size = size
+        self.H_max = H_max
+        self.H_min = H_min
         self.distributions = distributions.Distributions(self.seed, self.size)
-        print(self.size)
-        print(self.distributions)
-        self.h_distribution = HDistribution(self.distributions.power_knee_divot,
-                                            **dict([('alpha_bright', 1.1),
-                                                    ('alpha_faint', 0.4),
-                                                    ('h_break', 7.5),
-                                                    ('h_max', 11),
-                                                    ('h_min', 1)]))
-        self.j = j
-        self.k = k
         self.longitude_neptune = longitude_neptune  # Neptune's mean longitude on 1 Jan 2013
         self.a_neptune = 30.07 * units.au
-        self.comp = comp.replace(" ","_")
+        self.comp = comp.replace(" ", "_")
         self.epoch = epoch
         self.rebound_archive = f"Rebound_Archive.bin"
 
     @property
-    def sim(self):
+    def sim(self) -> rebound.Simulation:
         """
         A rebound Simulation object used to compute the cartesian locations of the particles in this model.
         """
@@ -519,12 +482,12 @@ class Parametric(ABC):
                 _sim.add("Neptune")
                 _sim.move_to_com()
                 _sim.simulationarchive_snapshot(self.rebound_archive)
-                del(_sim)
+                del _sim
             self._sim = rebound.SimulationArchive(self.rebound_archive)[0]
         return self._sim
 
     @property
-    def cartesian(self):
+    def cartesian(self) -> dict:
         """
         provide the state vector of the orbits.
 
@@ -543,21 +506,17 @@ class Parametric(ABC):
             for s in ['x', 'y', 'z']:
                 self._cartesian[s] = [p.__getattribute__(s) for p in self.sim.particles[5:]] * units.au
             for s in ['vx', 'vy', 'vz']:
-                self._cartesian[s] = [p.__getattribute__(s)*(2*numpy.pi) for p in self.sim.particles[5:]] * units.au/units.year
+                self._cartesian[s] = [p.__getattribute__(s) * (2 * numpy.pi) for p in self.sim.particles[5:]] * \
+                                     units.au / units.year
 
         return self._cartesian
 
     @property
     @abstractmethod
-    def a(self):
+    def a(self) -> Quantity:
         """
         J2000 Heliocentric semi-major axis.
         """
-        pass
-
-    @property
-    @abstractmethod
-    def phi(self):
         pass
 
     @property
@@ -570,14 +529,14 @@ class Parametric(ABC):
 
     @property
     @abstractmethod
-    def inc(self):
+    def inc(self) -> Quantity:
         """
         J2000 heliocentric inclination of orbit
         """
         pass
 
     @property
-    def node(self):
+    def node(self) -> Quantity:
         """
         Return uniformly distributed nodes.
         """
@@ -586,25 +545,34 @@ class Parametric(ABC):
         return self._node
 
     @property
-    def peri(self):
+    def peri(self) -> Quantity:
         """
-        Distribute peri centre to obey the phi/M/_longitude_neptune constraints.
+        Distribute peri uniformly.
         """
         if self._peri is None:
-            self._peri = self.distributions.uniform(0, 2*numpy.pi) * units.rad
+            self._peri = self.distributions.uniform(0, 2 * numpy.pi) * units.rad
         return self._peri
 
     @property
-    def M(self):
+    def M(self) -> Quantity:
         """
         Return uniformly distributed mean anomalies
         """
         if self._M is None:
-            self._M = self.distributions.uniform(0, 2**5*numpy.pi) * units.rad
+            self._M = self.distributions.uniform(0, 2 ** 5 * numpy.pi) * units.rad
         return self._M
 
     @property
-    def H(self):
+    def h_distribution(self):
+        return HDistribution(self.distributions.power_knee_divot,
+                             **dict([('alpha_bright', 1.1),
+                                     ('alpha_faint', 0.4),
+                                     ('h_break', 7.5),
+                                     ('h_max', self.H_max),
+                                     ('h_min', self.H_min)]))
+
+    @property
+    def H(self) -> Quantity:
         """A distribution of H values"""
         # define the default size distribution parameters.
         if self._H is None:
@@ -612,14 +580,14 @@ class Parametric(ABC):
         return self._H
 
     @property
-    def epoch(self):
+    def epoch(self) -> Quantity:
         """
         Epoch, in Julian Days, of the orbital elements.
         """
         return self._epoch
 
     @epoch.setter
-    def epoch(self, value):
+    def epoch(self, value: Quantity):
         if isinstance(value, Quantity):
             value = value.to('day').value
         if isinstance(value, Time):
@@ -628,106 +596,58 @@ class Parametric(ABC):
         # self._epoch = self.distributions.constant(value.to('day').value) * units.day
 
     @property
-    def phi(self):
-        """
-        Returns the centre of libration for resonances.. 0 otherwise.
-        """
-        if self._phi is None:
-            self._phi = self.distributions.constant(0.0) * units.deg
-        return self._phi
-
-    @property
-    def resamp(self):
-        """
-        Returns resamp a 0.0 as this is not a resonant orbit.
-        """
-        if self._resamp is None:
-            self._resamp = self.distributions.constant(0.0) * units.deg
-        return self._resamp
-
-    @property
-    def j(self):
-        """
-        Return 0 for non-resonant orbit.
-        """
-        if self._j is None:
-            self._j = self.distributions.constant(0)
-        return self._j
-
-    @property
-    def k(self):
-        """
-        Return 0 for non-resonant orbit
-        """
-        if self._k is None:
-            self._k = self.distributions.constant(0)
-        return self._k
-
-    @j.setter
-    def j(self, value):
-        """
-        Set the j of j/k resonance description.
-        """
-        self._j = self.distributions.constant(value)
-
-    @k.setter
-    def k(self, value):
-        """
-        Set the k of j/k resonance description.
-        """
-        self._k = self.distributions.constant(value)
-
-    @property
-    def comp(self):
+    def comp(self) -> list:
         """
         Label for the component being generated.
         """
         if self._comp is None:
-            self._comp = ['classical', ] * self.size
+            self.comp = 'Unk'
         return self._comp
 
     @comp.setter
-    def comp(self, value):
-        self._comp = [value, ] * self.size
+    def comp(self, value: (str, list)):
+        if type(value) == str:
+            value = [value, ]*self.size
+        self._comp = value
 
     @property
-    def lc_gb(self):
+    def lc_gb(self) -> Quantity:
         """
         Opposition surge effect as define in Bowell
         """
         if self._lc_gb is None:
-            self._lc_gb = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['gb']) * units.mag
+            self._lc_gb = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['gb'].to('mag').value) * units.mag
         return self._lc_gb
 
     @property
-    def lc_phase(self):
+    def lc_phase(self) -> Quantity:
         """
         Phase of lightcurve at self.epoch
         """
         if self._lc_phase is None:
-            self._lc_phase = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['phase']) * units.rad
+            self._lc_phase = self.distributions.uniform(0, 2*numpy.pi) * units.rad
         return self._lc_phase
 
     @property
-    def lc_period(self):
+    def lc_period(self) -> Quantity:
         """
         period of lightcurve
         """
         if self._lc_period is None:
-            self._lc_period = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['period']) * units.day
+            self._lc_period = self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['period'].to('day').value) * units.day
         return self._lc_period
 
     @property
-    def lc_amplitude(self):
+    def lc_amplitude(self) -> Quantity:
         """
         peak-to-peak amplitude of lightcurve
         """
         if self._lc_amplitude is None:
-            self._lc_amplitude = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['amplitude']) * units.mag
+            self._lc_amplitude = self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['amplitude'].to('mag').value) * units.mag
         return self._lc_amplitude
 
     @property
-    def colors(self):
+    def colors(self) -> Quantity:
         """
         colors of objects expressed as a list of list:
 
@@ -755,10 +675,11 @@ class Parametric(ABC):
         Expected to return a QTable or dictionary.  If a QTable then len of table should be self.size.
         If dictionary then each dictionary key should point to a list of length self.size.
 
-        All values stored as Quantity objects to allow conversion to desired units before passing to the SurveySubsF95.detos1
+        All values stored as Quantity objects to allow conversion to desired units
+        before passing to the SurveySubsF95.detos1
 
-        Must define at least {'a': [], 'e': [], 'inc': [], 'node': [], 'peri': [], 'M': [], 'H': []}  see OSSSSim.simulate for full
-        list of keys that can be returned.
+        Must define at least {'a': [], 'e': [], 'inc': [], 'node': [], 'peri': [], 'M': [], 'H': []}
+        see OSSSSim.simulate for full list of keys that can be returned.
 
         Returns:
             (QTable or dict): set of Quantity objects describing targets.
@@ -768,13 +689,11 @@ class Parametric(ABC):
         self._resamp = self._colors = self._cartesian = self._sim = None
 
         return QTable([self.a, self.e, self.inc, self.node, self.peri, self.M,
-                       self.j, self.k, self.phi, self.resamp,
                        self.cartesian['x'], self.cartesian['y'], self.cartesian['z'],
                        self.cartesian['vx'], self.cartesian['vy'], self.cartesian['vz'],
                        self.H, self.lc_gb, self.lc_phase, self.lc_period, self.lc_amplitude,
                        self.colors, self.comp],
                       names=['a', 'e', 'inc', 'node', 'peri', 'M',
-                             'j', 'k', 'phi', 'resamp',
                              'x', 'y', 'z',
                              'vx', 'vy', 'vz',
                              'H', 'lc_gb', 'lc_phase', 'lc_period', 'lc_amplitude',
@@ -836,30 +755,63 @@ class Parametric(ABC):
         return row
 
 
-class Resonant(Parametric):
+class Implanted(Parametric, ABC):
+    """"
+    Objects that were implanted into the Kuiper belt region and appear to share a SFD.
     """
-    This class defines methods needed to build a parametric Outer Solar System model for use as a model input for OSSSSim
+    def __init__(self, sigma_i=20, **kwargs):
+        super().__init__(**kwargs)
+        self.sigma_i = sigma_i
+
+    @property
+    def h_distribution(self):
+        return HDistribution(self.distributions.implanted_sfd,
+                             **dict([('h_max', self.H_max),
+                                     ('h_min', self.H_min)]))
+
+    @property
+    def inc(self):
+        """
+        Distribute the inclinations based on Brown 2001 functional form.
+        """
+        if self._inc is None:
+            self._inc = self.distributions.truncated_sin_normal(0,
+                                                                numpy.deg2rad(self.sigma_i),
+                                                                0,
+                                                                numpy.deg2rad(45)) * units.rad
+        return self._inc
+
+
+class Resonant(Implanted):
+    """
+    This class defines methods needed to build a parametric
+    Outer Solar System model for use as a model input for OSSSSim
     """
 
     def __init__(self,
-                 size=10**6,
+                 size=10 ** 6,
                  seed=123456789,
                  comp='Res',
                  longitude_neptune=5.876 * units.rad,
                  epoch=2456839.5 * units.day,
-                 j=0,
-                 k=0,
-                 res_amp_low=0*units.deg,
-                 res_amp_mid=5*units.deg,
-                 res_amp_high=10*units.deg,
-                 res_centre=0*units.deg, **kwargs):
+                 j=None,
+                 k=None,
+                 res_amp_low=20 * units.deg,
+                 res_amp_mid=95 * units.deg,
+                 res_amp_high=130 * units.deg,
+                 res_centre=180 * units.deg, **kwargs):
         """
-        Setup the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
+        Set up the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
 
         longitude_neptune and epoch are stored in self,longitude_neptune and self.epoch for use in
         self._generate_targets.
 
         See examples/models.py for an example implementation.
+
+
+                res_amp_low=20*units.degree,
+                res_amp_mid=95*units.degree,
+                res_amp_high=130*units.degree,
 
         Args:
             size (int): Determines size of the arrays to be generated (default=10^6).
@@ -878,11 +830,16 @@ class Resonant(Parametric):
             peaks at res_amp_mid and back to 0 at res_amp_high.  Generally uses distributions.Distribution.triangle
 
         """
-        super().__init__(size=size, seed=seed, epoch=epoch, longitude_neptune=longitude_neptune,
+        super().__init__(size=size,
+                         seed=seed,
+                         epoch=epoch,
+                         longitude_neptune=longitude_neptune,
                          j=j, k=k, comp=comp, **kwargs)
 
         if j is None or k is None:
-            ValueError(f"Resonance j/k are not None for Resonant Model objects")
+            ValueError(f"Resonance j/k cannot be None for Resonant Model objects")
+        self.j = j
+        self.k = k
         self._res_amp_low = self._res_amp_high = self._res_amp_mid = self._phi0 = None
         self.res_amp_low = res_amp_low
         self.res_amp_high = res_amp_high
@@ -890,48 +847,43 @@ class Resonant(Parametric):
         self.res_centre = res_centre
 
     @property
-    def res_amp_low(self):
+    def res_amp_low(self) -> Quantity:
         """Low end of resonance amplitude"""
         return self._res_amp_low
 
     @res_amp_low.setter
-    def res_amp_low(self, value):
+    def res_amp_low(self, value: Quantity):
         self._res_amp_low = value
 
     @property
-    def res_amp_mid(self):
+    def res_amp_mid(self) -> Quantity:
         """Low end of resonance amplitude"""
         return self._res_amp_mid
 
     @res_amp_mid.setter
-    def res_amp_mid(self, value):
+    def res_amp_mid(self, value: Quantity):
         self._res_amp_mid = value
 
     @property
-    def res_amp_high(self):
+    def res_amp_high(self) -> Quantity:
         """Low end of resonance amplitude"""
         return self._res_amp_high
 
     @res_amp_high.setter
-    def res_amp_high(self, value):
+    def res_amp_high(self, value: Quantity):
         self._res_amp_high = value
 
     @property
-    def res_centre(self):
-        """Low end of resonance amplitude"""
-        return self._res_centre
+    def res_centre(self) -> Quantity:
+        """Centre of resonance, aka phi0"""
+        return self._phi0
 
     @res_centre.setter
-    def res_centre(self, value):
-        self._res_centre = value
+    def res_centre(self, value: Quantity):
+        self._phi0 = value
 
     @property
-    def phi0(self):
-        """Resonance centre"""
-        return self.res_centre
-
-    @property
-    def a(self):
+    def a(self) -> Quantity:
         """
         J2000 Heliocentric semi-major axis sampled as +/- 0.5 from the resonance semi-major axis value.
         """
@@ -944,9 +896,10 @@ class Resonant(Parametric):
         return self._a
 
     @property
-    def e(self):
+    def e(self) -> numpy.array:
         """
-        Set the maximum value of 'e' based on the peri-center location of Neptune, minimum value set to 0.02 then randomly sample this
+        Set the maximum value of 'e' based on the peri-center location of Neptune,
+        minimum value set to 0.02 then randomly sample this
         range of e.
         """
         if self._e is None:
@@ -954,19 +907,7 @@ class Resonant(Parametric):
         return self._e
 
     @property
-    def inc(self):
-        """
-        Distribute the inclinations based on Brown 2001 functional form.
-        """
-        if self._inc is None:
-            self._inc = self.distributions.truncated_sin_normal(0,
-                                                                numpy.deg2rad(11),
-                                                                0,
-                                                                numpy.deg2rad(40)) * units.rad
-        return self._inc
-
-    @property
-    def peri(self):
+    def peri(self) -> Quantity:
         """
         Distribute peri centre to obey the phi/M/_longitude_neptune constraints.
 
@@ -974,25 +915,29 @@ class Resonant(Parametric):
         """
         if self._peri is None:
             # self._peri = (self.phi - p*self.M + q*self.longitude_neptune - q*self.node)/q
+            self._phi = None  # reset the phi distribution.
             p = self.j
             q = self.k
-            self._peri = ((self.phi - p*self.M + q*self.longitude_neptune - q*self.node)/q) % (360*units.deg)
+            self._peri = ((self.phi - p * self.M + q * self.longitude_neptune - q * self.node) / q) % (360 * units.deg)
             # below is different algebra to get the same result
-            # self._peri = (self.phi / self.k - self.j * self.M / self.k + self.longitude_neptune - self.node) % (360 * units.deg)
+            # self._peri = (self.phi / self.k - self.j * self.M / self.k + self.longitude_neptune - self.node)
+            # % (360 * units.deg)
         return self._peri
 
     @property
-    def phi(self):
+    def phi(self) -> Quantity:
         """
-        Compute the phi, libration centre from the resonance centre and sampling the resonance amplitude via sin() weighting.
+        Compute the phi, libration centre from the resonance centre and sampling the
+        resonance amplitude via sin() weighting.
         """
         if self._phi is None:
-            amplitudes = numpy.sin(self.distributions.uniform(0, 2*numpy.pi))
-            self._phi = self.res_centre + amplitudes*self.resamp
+            self._resamp = None  # Reset the resonant libration amplitude distribution.
+            amplitudes = numpy.sin(self.distributions.uniform(0, 2 * numpy.pi))
+            self._phi = self.res_centre + amplitudes * self.resamp
         return self._phi
 
     @property
-    def resamp(self):
+    def resamp(self) -> Quantity:
         """
         amplitude of the distribution of resonance centres around libration centre, used in self.phi
         """
