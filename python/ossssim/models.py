@@ -481,9 +481,9 @@ class Parametric(ABC):
                 _sim.add("Uranus")
                 _sim.add("Neptune")
                 _sim.move_to_com()
-                _sim.simulationarchive_snapshot(self.rebound_archive)
+                _sim.save_to_file(self.rebound_archive)
                 del _sim
-            self._sim = rebound.SimulationArchive(self.rebound_archive)[0]
+            self._sim = rebound.Simulation(self.rebound_archive)
         return self._sim
 
     @property
