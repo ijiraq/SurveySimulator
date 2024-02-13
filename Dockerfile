@@ -1,7 +1,7 @@
 # this builds a container that can be used to run the SurveySimulator (python and fortran)
 # This container is loaded into the canfar Science Portal for use/execution.
 # Can also be used directly with docker.
-FROM ubuntu:latest as deploy
+FROM ubuntu:latest as base
 USER root
 RUN apt-get update && yes | unminimize 
 RUN apt-get update && yes | apt-get install wget man man-db manpages-posix git \
@@ -41,20 +41,26 @@ RUN mkdir /opt/SSim
 RUN mkdir /opt/SSim/fortran
 COPY fortran/F95 /opt/SSim/fortran/F95
 COPY python /opt/SSim/python
+COPY Characterizations /opt/SSim/Characterzations
 WORKDIR /opt/SSim/fortran/F95
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
+RUN pip3 install astroplan
+
+
+FROM base as deploy
 WORKDIR /opt/SSim/python
 RUN pip install .
 
-RUN pip3 install astroplan
-
 # Two build sets, deploy and test
-FROM deploy as test
-RUN echo "Adding a test user to run local testing"
+FROM base as test
+
 RUN mkdir -p /arc/home
 RUN groupadd -g 1001 testuser
 RUN useradd -u 1001 -g 1001 -s /bin/bash -d /arc/home/testuser -m testuser
+RUN chown -R testuser /opt/SSim
+WORKDIR /opt/SSim/python
+RUN pip install -e .
 USER testuser
 WORKDIR /arc/home/testuser
 COPY etc/ReadModelFromFile.in ./
