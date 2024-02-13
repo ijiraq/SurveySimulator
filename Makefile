@@ -14,6 +14,7 @@ deploy: production
 
 dev: dependencies Dockerfile
 	docker build --target test --build-arg VERSION=$(VERSION) -t $(NAME):$(VERSION) -f Dockerfile .
+	echo "docker run --rm -it --user root -v /opt/SSim/python:python images.canfar.net/uvickbos/ssim:python bash"
 
 dependencies: 
 
