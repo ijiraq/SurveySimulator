@@ -7,7 +7,6 @@ from ossssim.models import Parametric
 from ossssim import OSSSSim, DetectFile, ModelFile, definitions, plotter
 from astropy import units
 
-
 class Ring(Parametric):
     """
     Class used to create and store the objects generated and passed by the GiMeObj module into the main Driver.py
@@ -68,7 +67,7 @@ def run(model_filename,
     ssim = OSSSSim(characterization_directory=characterization_directory)
 
     # the default Resonant class arguments setup for a Plutino model....
-    model = Ring(45*units.au, 1*units.au, seed=seed, component='Ring')
+    model = Ring(45*units.au, 1*units.au, seed=seed, component='Ring', size=1, H_max=9)
 
     model_file = DetectFile(model_filename)
     model_file.epoch = model.epoch
@@ -85,7 +84,7 @@ def run(model_filename,
     n_iter = n_track = n_hits = 0
     for row in model:
         n_iter += 1
-        result = ssim.simulate(row, seed=model.seed)
+        result = ssim.simulate(row, seed=model.seed, epoch=model.epoch)
         model_file.write_row(result)
         if result['flag'] > 0:
             n_hits += 1
@@ -110,13 +109,14 @@ def face_down_plot(model_file: str, detect_file: str) -> None:
     plot = plotter.RosePlot(definitions.Neptune['Longitude'])
     plot.add_model(ModelFile(model_file), mc='k', ms=0.05, alpha=0.1)
     plot.add_model(ModelFile(detect_file), ms=5, mc='g')
-    # plot.add_scale_rings()
-    plot.show()
+    # plot.show()
+    plot.savefig('ring.png')
 
 
 if __name__ == '__main__':
+    from ossssim import Characterizations
     run('RingModel.dat', 'RingDetect.dat',
-        '../tests/data/CFEPS',
+        Characterizations.surveys['CFEPS'],
         123456789,
         28)
     face_down_plot('RingModel.dat', 'RingDetect.dat')
