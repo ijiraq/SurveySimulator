@@ -41,7 +41,6 @@ RUN mkdir /opt/SSim
 RUN mkdir /opt/SSim/fortran
 COPY fortran/F95 /opt/SSim/fortran/F95
 COPY python /opt/SSim/python
-COPY Characterizations /opt/SSim/Characterzations
 WORKDIR /opt/SSim/fortran/F95
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
