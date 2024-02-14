@@ -49,7 +49,7 @@ class ResultsFile:
     ModelFile structure for output file from Simulator detections.
     """
     colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H',
-                'q', 'r', 'm_rand', 'H_rand',
+                'q', 'r', 'm_rand', 'H_rand', 'x', 'y', 'z',
                 'color', 'comp', 'j', 'k']
 
     def __init__(self, filename, randomize=False):
@@ -116,6 +116,15 @@ class ResultsFile:
     def colors(self, values):
         self._colors = values
 
+    def format_value_in_column(self, this_row, colname, col_format, null_value='...'):
+        if not colname in this_row:
+            return null_value
+        if isinstance(this_row[colname], Quantity):
+            value = this_row[colname].to(definitions.colunits[colname]).value
+        else:
+            value = this_row[colname]
+        return f"{value:{col_format}}".format(value=value, col_format=col_format)
+
     def write_row(self, this_row):
         """
         Given a dictionary of row values write the row according to the order in colnames
@@ -127,14 +136,7 @@ class ResultsFile:
             sep = "  "
             for colname in self.colnames:
                 col_format = definitions.formats.get(colname, definitions.formats['default'])
-                if isinstance(this_row[colname], Quantity):
-                    value = this_row[colname].to(definitions.colunits[colname]).value
-                else:
-                    value = this_row[colname]
-                o_str = "{sep}{value:{col_format}}".format(value=value,
-                                                           col_format=col_format,
-                                                           sep=sep)
-                f_detect.write(o_str)
+                f_detect.write(f"{sep}{self.format_value_in_column(this_row, colname, col_format)}")
                 sep = " "
             f_detect.write('\n')
 
@@ -180,7 +182,7 @@ class ModelOutputFile(ResultsFile):
     """
 
     colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
-                'color', 'comp', 'j', 'k']
+                'color', 'comp', 'j', 'k', 'x', 'y', 'z']
 
 
 class DetectFile(ResultsFile):
@@ -188,7 +190,7 @@ class DetectFile(ResultsFile):
     Detected object output file structure.
     """
     colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r', 'Mt', 'm_rand', 'h_rand', 'color', 'flag',
-                'delta', 'm_int', 'eff', 'RA', 'DEC', 'comp', 'j', 'k']
+                'delta', 'm_int', 'eff', 'RA', 'DEC', 'comp', 'j', 'k', 'x', 'y', 'z']
 
 
 class FakeFile(ResultsFile):

@@ -326,6 +326,15 @@ class RosePlot:
                       alpha=alpha)
 
     @staticmethod
+    def savefig(filename, **kwargs) -> None:
+        """
+        Save the figure to file
+
+        filename: name of file to save figure to
+        """
+        plt.savefig(filename, **kwargs)
+
+    @staticmethod
     def show() -> None:
         """
         Display the plot.
