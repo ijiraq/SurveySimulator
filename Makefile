@@ -2,7 +2,7 @@
 REPO = images.canfar.net
 PROJECT = uvickbos
 DEVNAME = ssim
-VERSION = python
+VERSION = regina
 
 NAME = $(REPO)/$(PROJECT)/$(DEVNAME)
 
@@ -14,7 +14,7 @@ deploy: production
 
 dev: dependencies Dockerfile
 	docker build --target test --build-arg VERSION=$(VERSION) -t $(NAME):$(VERSION) -f Dockerfile .
-	echo "docker run --rm -it --user root -v /opt/SSim/python:python images.canfar.net/uvickbos/ssim:python bash"
+	echo "docker run --rm -it -p 8888:8888 $(NAME):$(VERSION) bash"
 
 dependencies: 
 
