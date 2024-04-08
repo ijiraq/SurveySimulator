@@ -12,20 +12,20 @@ class Ring(Parametric):
     Class used to create and store the objects generated and passed by the GiMeObj module into the main Driver.py
     module that executes the survey simulator code.
     """
-    def __init__(self, ring_centre, ring_width, **kwargs):
+    def __init__(self, ring_centre, ring_width, model_band='r', **kwargs):
         """Build a ring distribution of given with at a given distance.  Ring is edge-on and circular.
 
         Args:
             ring_center (units.Quantity): The location of the ring, given as unit quantity
             ring_width (units.Quantity): Width of the ring.
         """
-        super().__init__(**kwargs)
+        super().__init__(model_band=model_band, **kwargs)
         self.ring_center = ring_centre
         self.ring_width = ring_width
 
 
     @property
-    def a(self):
+    def a_distribution(self):
         """
         Semi-major axis distribution for a narrow ring
         """
@@ -35,14 +35,14 @@ class Ring(Parametric):
 
 
     @property
-    def e(self):
+    def e_distribution(self):
         """
         Eccentricity axis distribution for a narrow ring
         """
         return self.distributions.constant(0.0)
 
     @property
-    def inc(self):
+    def inc_distribution(self):
         """
         Inclination distribution for a narrow ring
         """
@@ -69,22 +69,13 @@ def run(model_filename,
     # the default Resonant class arguments setup for a Plutino model....
     model = Ring(45*units.au, 1*units.au, seed=seed, component='Ring', size=1, H_max=9)
 
-    model_file = DetectFile(model_filename)
-    model_file.epoch = model.epoch
-    model_file.longitude_neptune =model.longitude_neptune
-    model_file.colors = definitions.COLORS.values()
-    model_file.write_header(seed)
-
-    detect_file = DetectFile(detect_filename)
-    detect_file.epoch = model.epoch
-    detect_file.longitude_neptune = model.longitude_neptune
-    detect_file.colors = definitions.COLORS.values()
-    detect_file.write_header(seed)
+    model_file = DetectFile(model_filename, epoch=model.epoch, longitude_neptune=model.longitude_neptune, seed=model.seed)
+    detect_file = DetectFile(detect_filename, epoch=model.epoch, longitude_neptune=model.longitude_neptune, seed=model.seed)
 
     n_iter = n_track = n_hits = 0
     for row in model:
         n_iter += 1
-        result = ssim.simulate(row, seed=model.seed, epoch=model.epoch)
+        result = ssim.simulate(row, colors=model.colors, model_band=model.model_band, seed=model.seed, epoch=model.epoch)
         model_file.write_row(result)
         if result['flag'] > 0:
             n_hits += 1
