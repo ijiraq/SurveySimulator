@@ -2,6 +2,8 @@
 Functions us in analysis of OSSOS H distribution.
 
 """
+import logging
+
 import numpy
 from scipy import stats
 ln10 = numpy.log(10.)
@@ -14,6 +16,7 @@ K_BETA_SI = 0.42
 K_Ho = -2.6
 K_Hb = 8.1
 
+KAVELAARS_VARIABLY_TAPERED = {'Ho': -2.6, 'Hb': 8.1, 'alpha_SI': 0.67, 'beta_SI': 0.42}
 
 def long_lat_r(x: numpy.array, y: numpy.array, z: numpy.array) -> {numpy.array, numpy.array, numpy.array}:
     """
@@ -119,8 +122,8 @@ def likelihood(H, bias, A=0.88, B=450.0,  alpha_SI=0.67, beta_SI=0.65):
     if False:
         plt.clf()
         plt.plot(H, numpy.interp(H, x, cdf), '-')
-        plt.plot(x[1:], (dx*pdf).cumsum(), ':k')
-        plt.plot(ht, dh*dN.cumsum(), ':k')
+        plt.plot(x[1:], (dx * pdf).cumsum(), ':k')
+        plt.plot(ht, dh * dN.cumsum(), ':k')
         plt.plot(H, numpy.ones(len(H)).cumsum(), '-')
         plt.yscale('log')
         plt.ylim(1, 10000)
@@ -172,7 +175,6 @@ def fraser(H, a1, a2, Ho, Hb, dh):
     N = dh*a1*ln10*10**(a1*(H-Ho))
     C = 10**(a1*(Hb-Ho))
     N[H >= Hb] = dh*a1*ln10*C*10**(a2*(H[H > Hb]-Hb))
-    print(N[H<Hb][-3:], N[H>=Hb][0])
     return N
 
 
@@ -272,7 +274,7 @@ def cold_cfd(H:numpy.array) -> numpy.array:
 
 
 if __name__ == '__main__':
-    print("This is the result from the OSSOS SFD papers.")
+    logging.info("This is the result from the OSSOS SFD papers.")
     from matplotlib import pyplot as plt
     Ho = -2.6
     Hb = 8.1 

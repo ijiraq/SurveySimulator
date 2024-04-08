@@ -36,16 +36,8 @@ contains
 !     o_m   : orbital elements of object (t_orb_m)
 !     jday  : Time of elements [JD] (R8)
 !     hx    : Absolute magnitude of object in 'x' band, what ever this is (R8)
-!     color : Array of colors (10*R8)
-!                colors(1) : g-x
-!                colors(2) : r-x
-!                colors(3) : i-x
-!                colors(4) : z-x
-!                colors(5) : u-x
-!                colors(6) : V-x
-!                colors(7) : B-x
-!                colors(8) : R-x
-!                colors(9) : I-x
+!     color : Array of colors (128*R8)
+!                IACHAR(FILTER)+1 : FILTER - X
 !     gb    : opposition surge factor G, Bowell formalism (R8)
 !     ph    : phase of lightcurve at epoch jday [rad] (R8)
 !     period: period of lightcurve [day] (R8)

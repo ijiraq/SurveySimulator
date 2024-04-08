@@ -67,24 +67,24 @@ class TimeSeriesPlot:
         """
 
         if variables is None:
-            variables = self.model.targets.colnames
+            variables = self.model.targets.column_names
         nx = len(variables)//2
         ny = 2
         for i, column in enumerate(variables):
             ax = self.fig.add_subplot(nx, ny, i)
-            if column not in self.model.targets.colnames:
+            if column not in self.model.targets.column_names:
                 logging.warning(f"Could not plot {column} as does not appear input model.")
                 pass
 
             values = self.model.targets[column]
             if isinstance(values[0], (list, numpy.ndarray)):
                 for idx in range(len(values[0])):
-                    ax.plot(values[:, idx].to(definitions.colunits[column]).value,
+                    ax.plot(values[:, idx].to(definitions.column_unit[column]).value,
                             color='k', marker='o', linestyle='none', linewidth=2, markersize=1)
             else:
-                ax.plot(values.to(definitions.colunits[column]).value,
+                ax.plot(values.to(definitions.column_unit[column]).value,
                         color='k', marker='o', linestyle='none', linewidth=2, markersize=1)
-            ax.ylabel(f"{column} ({definitions.colunits[column]})")
+            ax.ylabel(f"{column} ({definitions.column_unit[column]})")
         plt.show()
 
 
@@ -98,7 +98,7 @@ class RosePlot:
 
     """
 
-    def __init__(self, epoch: float, outer_edge=85 * units.au, inner_edge=10 * units.au) -> None:
+    def __init__(self, epoch: Time, outer_edge=85 * units.au, inner_edge=10 * units.au) -> None:
         """
         Plot the TNO discoveries on a top-down Solar System showing the position of Neptune and model TNOs.
 
@@ -148,7 +148,7 @@ class RosePlot:
         Return the longitude of Neptune based on the current epoch
         """
         if self._longitude_neptune is None:
-            neptune = jplhorizons.Horizons(899, epochs=self.epoch, location='568')
+            neptune = jplhorizons.Horizons(899, epochs=self.epoch.jd, location='568')
             self._longitude_neptune = neptune['EcLon']
         return self._longitude_neptune
 
@@ -258,7 +258,7 @@ class RosePlot:
         for planet_name in ['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']:
             planet = jplhorizons.Horizons(ids[planet_name],
                                           location='568',
-                                          epochs=self.epoch)
+                                          epochs=self.epoch.jd)
             eph = planet.ephemerides()
             alpha = 0.7
             size = 20
@@ -310,14 +310,14 @@ class RosePlot:
         """
         Make a face-down plot of the solar system for this model.
         """
-        coord = SkyCoord(model.targets['x'], model.targets['y'], model.targets['z'], representation_type='cartesian',
+        coord = SkyCoord(model.table['x'], model.table['y'], model.table['z'], representation_type='cartesian',
                          frame='heliocentrictrueecliptic', obstime='2000-01-01').transform_to(self.frame)
 
         if sample_size is None:
             choice = numpy.arange(len(coord))
         else:
             rng = default_rng()
-            choice = rng.integers(0, len(model.targets), sample_size)
+            choice = rng.integers(0, len(model.table), sample_size)
 
         self.ax1.plot(coord.lon.to('rad').value[choice],
                       coord.distance.to('au').value[choice],

@@ -11,5 +11,5 @@ The modeles modules contains classes to build models to pass to the Simulator, s
 
 """
 from .core import *
-from .models import DetectFile, ModelFile, ModelOutputFile
+from .models import DetectFile, ModelFile, ModelOutputFile, ModelFileEcsv, ModelFileOld
 from .ephem import Ephem

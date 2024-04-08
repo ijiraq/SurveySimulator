@@ -1,6 +1,7 @@
 """
 Model classes for the Outer Solar System Survey Simulator.
 """
+import copy
 import logging
 import os
 import re
@@ -8,22 +9,25 @@ import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Iterable
-
 import numpy
 import rebound
 from astropy import units
-from astropy.table import QTable
+from astropy.table import QTable, Table
 from astropy.time import Time
 from astropy.units import Quantity
 from numpy import random
-
-# from .lib import SurveySubsF95
 from . import definitions
-# from . import definitions
 from . import distributions
+from . import color
+from .color import PhotSpec
+from .core import Cartesian
 
 T_ORB_M_UNITS = definitions.T_ORB_M_UNITS
 RE_FLOAT = re.compile('[+-]?\d+\.?\d*[de]?\d*')
+
+INITIAL_TABLE_FORMAT = 'ascii.ecsv'
+APPEND_TABLE_FORMAT = 'ascii.no_header'
+TABLE_COLUMN_DELIMITER = ','
 
 
 def get_floats_in_str(line):
@@ -44,171 +48,21 @@ def get_floats_in_str(line):
     return result
 
 
-class ResultsFile:
-    """
-    ModelFile structure for output file from Simulator detections.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H',
-                'q', 'r', 'm_rand', 'H_rand', 'x', 'y', 'z',
-                'color', 'comp', 'j', 'k']
-
-    def __init__(self, filename, randomize=False):
-        self.filename = filename
-        self.randomize = randomize
-        self._header = None
-        self._header_parsed = False
-        self._colnames = None
-        self._colors = None
-        self._epoch = None
-        self._longitude_neptune = None
-        self._seed = None
-        self.header_lines = []
-        self.file_location = None
-
-    @property
-    def epoch(self):
-        """
-        Epoch of coordinates of orbit
-        """
-        if self._epoch is None:
-            raise ValueError(f"epoch has not been set.")
-        return self._epoch
-
-    @epoch.setter
-    def epoch(self, value):
-        """
-        Args:
-            value (Time or float or int or Quantity): the value of the epoch
-        """
-        if isinstance(value, Time):
-            self._epoch = value
-        elif isinstance(value, float) or isinstance(value, int):
-            self._epoch = Time(value, format='jd')
-        elif isinstance(value, Quantity):
-            self._epoch = Time(value.to('day').value, format='jd')
-        else:
-            raise ValueError(f"Don't know how to set epoch using: {value}")
-
-    @property
-    def longitude_neptune(self):
-        """
-        Longitude of Neptune at epoch
-        """
-        if self._longitude_neptune is None:
-            raise ValueError(f"longitude_neptune has not been set.")
-        return self._longitude_neptune
-
-    @longitude_neptune.setter
-    def longitude_neptune(self, value):
-        if not isinstance(value, Quantity) and value is not None:
-            raise ValueError(f"longitude_neptune must be set to a Quantity with units")
-        self._longitude_neptune = value
-
-    @property
-    def colors(self):
-        """Returns color array from file header or default if no color array in header."""
-        if self._colors is None:
-            # pickup the default values
-            self._colors = list(definitions.COLORS.values())
-        return self._colors
-
-    @colors.setter
-    def colors(self, values):
-        self._colors = values
-
-    def format_value_in_column(self, this_row, colname, col_format, null_value='...'):
-        if not colname in this_row:
-            return null_value
-        if isinstance(this_row[colname], Quantity):
-            value = this_row[colname].to(definitions.colunits[colname]).value
-        else:
-            value = this_row[colname]
-        return f"{value:{col_format}}".format(value=value, col_format=col_format)
-
-    def write_row(self, this_row):
-        """
-        Given a dictionary of row values write the row according to the order in colnames
-
-        :param this_row: Dictionary of values to write to row.
-        """
-        with open(self.filename, 'a') as f_detect:
-            # start sep as 2 spaces as column name header starts with '# '
-            sep = "  "
-            for colname in self.colnames:
-                col_format = definitions.formats.get(colname, definitions.formats['default'])
-                f_detect.write(f"{sep}{self.format_value_in_column(this_row, colname, col_format)}")
-                sep = " "
-            f_detect.write('\n')
-
-    def write_header(self, seed):
-        """
-        :param seed: the seed for random generator that resulted in these detections.
-        :type seed: int
-        """
-        with open(self.filename, 'w') as f_detect:
-            f_detect.write(f"# Seed = {seed}\n")
-            f_detect.write(f"# Epoch of elements: JD = {self.epoch}\n")
-            f_detect.write(f"# Longitude of Neptune: longitude_neptune = {self.longitude_neptune}\n")
-            if self.colors is not None:
-                color_str = " ".join([f"{c.to(units.mag).value:5.2f} " for c in self.colors])
-                f_detect.write(f"# Colors = {color_str}\n")
-            f_detect.write(f"#\n")
-            date = time.strftime("%Y-%m-%dT%H:%M:%S.000  %z")
-            f_detect.write(f"# Creation_time: {date:30s}\n")
-            f_detect.write('# flag: >0: detected; >2: characterized; 0 mod(2): tracked\n')
-            f_detect.write('# Survey: name of the observing block where model object was detected\n')
-            f_detect.write("# ")
-            for colname in self.colnames:
-                f_detect.write("{colname:>{width}s} ".format(colname=colname,
-                                                             width=definitions.COLUMN_WIDTH))
-            f_detect.write("\n")
-
-    def write_footer(self, n_iter, n_hits, n_track):
-        """
-        Write a footer with the results of the survey simulation
-
-        This is done as a footer instead of header to allow streaming output.
-        """
-        with open(self.filename, 'a') as f_detect:
-            f_detect.write('# Total number of objects:   {:11d}\n'.format(n_iter))
-            f_detect.write('# Number of detections:      {:7d}\n'.format(n_hits))
-            f_detect.write('# Number of tracked objects: {:7d}\n'.format(n_track))
-
-
-class ModelOutputFile(ResultsFile):
-    """
-    Output format used to store the input model, used when model is parametric,
-    and you want to keep a record of input for diagnostics
-    """
-
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
-                'color', 'comp', 'j', 'k', 'x', 'y', 'z']
-
-
-class DetectFile(ResultsFile):
-    """
-    Detected object output file structure.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r', 'Mt', 'm_rand', 'h_rand', 'color', 'flag',
-                'delta', 'm_int', 'eff', 'RA', 'DEC', 'comp', 'j', 'k', 'x', 'y', 'z']
-
-
-class FakeFile(ResultsFile):
-    """
-    List of positions of artificial objects to add to the file.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'mag', 'dra', 'ddec', 'RA', 'DEC']
-
-
-class TrackFile(ResultsFile):
-    """
-    Tracked object output file structure.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r',
-                'Mt', 'm_rand', 'H_rand', 'color', 'Survey', 'comp', 'j', 'k']
-
-
 class ModelFile(Iterable):
+
+    def __new__(cls, filename, randomize=False):
+        with open(filename, 'r') as f_obj:
+            if "%ECSV" in f_obj.readline():
+                cls = ModelFileEcsv
+            else:
+                cls = ModelFileOld
+        return super().__new__(cls)
+
+    def close(self):
+        self._f_obj.close()
+
+
+class ModelFileOld(ModelFile):
     """
     A class to drive the SSim using a standard model file.
 
@@ -223,6 +77,7 @@ class ModelFile(Iterable):
         self._header_parsed = False
         self._colnames = None
         self._colors = None
+        self._model_band = None
         self._epoch = None
         self._longitude_neptune = None
         self._seed = None
@@ -232,15 +87,24 @@ class ModelFile(Iterable):
         self._targets = None
         self._f = None
 
+    def close(self):
+        self._f_obj.close()
+
     @property
-    def epoch(self):
+    def epoch(self) -> Time:
         """
         Epoch of coordinates of orbit read from model file header.
         """
         if self._epoch is None:
             self._epoch = Time(float(self.header['JD'][0].replace('d', 'e')),
-                               format='jd').jd * units.day
+                               format='jd')
         return self._epoch
+
+    @property
+    def seed(self):
+        if self._seed is None:
+            self._seed = int(self.header['Seed'][0])
+        return self._seed
 
     @property
     def longitude_neptune(self):
@@ -251,18 +115,29 @@ class ModelFile(Iterable):
             self._longitude_neptune = float(self.header['lambdaN'][0].replace('d', 'e')) * units.radian
         return self._longitude_neptune
 
+    @staticmethod
+    def get_key_of_smallest_abs_value_in_dict(d: dict):
+        return
+
     @property
     def colors(self):
         """Returns color array from file header or default if no color array in header."""
-        if self._colors is None:
-            # pickup the
-            self._colors = list(definitions.COLORS.values())
-            _header_colors = []
-            for color in self.header.get('Colors', ''):
-                _header_colors.append(get_floats_in_str(color)[0] * units.mag)
-            for idx in range(len(_header_colors)):
-                self._colors[idx] = _header_colors[idx]
+        if self._colors is not None:
+            return self._colors
+        # pickup the default colors to get the correct order of band differences.
+        colors_list = numpy.array([get_floats_in_str(color_str)[0]
+                                   for color_str in self.header.get('Colors', '')]) * units.mag
+        self._colors = color.PhotSpec.from_old_style_list(colors_list)
         return self._colors
+
+    @property
+    def model_band(self) -> str:
+        if self._model_band is None:
+            # set the model band pass to the minimum value in the default color dictionary
+            dictionary_of_band_pass_ratio_values = self.colors.colors['default']
+            colors = numpy.array([x.to('mag').value for x in dictionary_of_band_pass_ratio_values.values()])
+            self._model_band = list(dictionary_of_band_pass_ratio_values)[numpy.argmin(numpy.fabs(colors))].split('-')[1]
+        return self._model_band
 
     @property
     def colnames(self):
@@ -368,13 +243,13 @@ class ModelFile(Iterable):
                     value = 0
                 else:
                     raise ex
-            if definitions.colunits.get(colname, None) is not None:
-                value = value * definitions.colunits[colname]
+            if definitions.column_unit.get(colname, None) is not None:
+                value = value * definitions.column_unit[colname]
             row[colname] = value
-
-        if 'colors' not in row:
-            row['colors'] = self.colors
         return row
+    @property
+    def table(self):
+        return self.targets
 
     @property
     def targets(self):
@@ -405,38 +280,331 @@ class ModelFile(Iterable):
         return self._targets
 
 
-class HDistribution:
+class OSSSSimFile(ABC):
     """
-    Provide a class to describe the size distribution of the object being simulated.
+    Base class for OSSSSim Parametric model and external model input files
+    """
+    def __init__(self, filename):
+        self.filename = filename
+        self._table = None
+        self._last_row_written = 0
+        self._seed = self._epoch = self._colors = self._longitude_neptune = self._seed = None
+        self.mask_these_if_not_detected = copy.copy(definitions.observables)
+
+    @property
+    @abstractmethod
+    def table(self) -> QTable:
+        """
+        Table of orbital elements and measurements of circumstance of observation (if observed)
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def column_names(self) -> list[str]:
+        """
+        return a list of column names to be written or read from file.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def header(self) -> dict:
+        """
+        Provide a header dictionary with circumstances of the model.
+        Should include epoch, seed, longitude_neptune, colors, and component.
+        """
+        pass
+
+    @property
+    def epoch(self) -> Time:
+        """
+        Epoch of coordinates of orbit read from model file header.
+        """
+        if self._epoch is not None:
+            return self._epoch
+
+        self._epoch = self.header['Epoch']
+        if not isinstance(self._epoch, Time):
+            self._epoch = Time(self._epoch, format='jd')
+
+        return self._epoch
+
+    @property
+    def seed(self) -> int:
+        """
+        Seed of the model read from the model file header.
+        """
+        return int(self.header['Seed'])
+
+    @property
+    def longitude_neptune(self) -> Quantity:
+        """
+        Longitude of Neptune at epoch
+        """
+        value = self.header['Longitude_Neptune']
+        if not isinstance(value, Quantity):
+            value *= units.rad
+        return value
+
+    @property
+    def colors(self) -> PhotSpec:
+        """Returns color array from file header or default if no color array in header."""
+        return PhotSpec(self.header['Colors'])
+
+    @colors.setter
+    def colors(self, value):
+        self.header['Colors'] = value
+
+    @property
+    def model_band(self) -> str:
+        return self.header['Model_Band']
+
+    @model_band.setter
+    def model_band(self, value):
+        self.header['Model_Band'] = value
+
+    def write_row(self, row):
+        """
+        Append a row to the file.
+        """
+        self.append(row)
+        self.write(self.filename, append=True)
+
+    def append(self, this_row) -> None:
+        """
+        Given a dictionary of row values append the row to the current table
+
+        :param this_row: Dictionary of values to write to row.
+        """
+        mask = []
+        _table_row = []
+        for column_name in self.column_names:
+            if column_name not in this_row:
+                raise ValueError(f"Column name {column_name} not found in {this_row}.")
+            masked = (this_row.get('flag', 0) < 1) & (column_name in self.mask_these_if_not_detected)
+            mask.append(masked)
+            # has_unit = hasattr(this_row[column_name], 'unit') and this_row[column_name].unit is not None
+            value = this_row[column_name]
+            # print(value, this_row[column_name], has_unit, column_name, definitions.column_unit.get(column_name, this_row[column_name].unit))
+            # if has_unit:
+            #    value = value.to(definitions.column_unit.get(column_name, this_row[column_name].unit))
+            _table_row.append(value)
+        self.table.add_row(_table_row, mask=mask)
+
+    def write(self, filename, append=True,
+              column_delimiter=TABLE_COLUMN_DELIMITER,
+              table_format=APPEND_TABLE_FORMAT):
+        """
+        Write the table to a file.
+        """
+        file_already_exists = os.access(filename, os.F_OK)
+        if file_already_exists and not append:
+            raise IOError(f"File {filename} already exists and not writing in append mode.")
+        if not file_already_exists:
+            self._last_row_written = 0
+            table_format = INITIAL_TABLE_FORMAT
+        column_formats = dict([(column_name,
+                                definitions.column_format.get(column_name, definitions.column_format['default']))
+                               for column_name in self.column_names])
+        with open(self.filename, 'a') as f_obj:
+            self.table[self._last_row_written:].write(f_obj,
+                                                      delimiter=column_delimiter,
+                                                      # meta=self.table.meta,
+                                                      format=table_format,
+                                                      overwrite=False,
+                                                      formats=column_formats)
+        self._last_row_written = len(self.table)
+
+    def write_footer(self, n_iter, n_hits, n_track):
+        """
+        Write a footer with the results of the survey simulation
+
+        This is done as a footer instead of header to allow streaming output.
+        """
+        with open(self.filename, 'a') as f_detect:
+            f_detect.write(f'# Total number of objects:   {n_iter:>11d}\n')
+            f_detect.write(f'# Number of detections:      {n_hits:>11d}\n')
+            f_detect.write(f'# Number of tracked objects: {n_track:>11d}\n')
+
+
+class ResultsFile(OSSSSimFile):
+    """
+    ModelFile structure for output file from Simulator detections.
     """
 
-    def __init__(self, func, **kwargs):
+    @property
+    def column_names(self) -> list[str]:
+        return self.table.colnames
+
+    @property
+    def header(self) -> dict:
+        return self.table.meta
+
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H',
+                'q', 'r', 'm_rand', 'H_rand', 'x', 'y', 'z',
+                'band', 'comp', 'j', 'k']
+
+    def __init__(self, filename, seed=None, epoch=definitions.Neptune['Epoch'],
+                 longitude_neptune=definitions.Neptune['Longitude'], colors=PhotSpec(),
+                 model_band=definitions.DEFAULT_MODEL_BAND, randomize=False):
+        super().__init__(filename)
+        self.meta = dict([('Seed', seed),
+                          ('Epoch', epoch),
+                          ('Longitude_Neptune', longitude_neptune),
+                          ('Colors', colors.colors),
+                          ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
+                          ('Model_Band', model_band)])
+
+        self.filename = filename
+        self._table = None
+
+    @property
+    def table(self) -> QTable:
+        if self._table is not None:
+            return self._table
+        dtypes = []
+        column_units = []
+        description = {}
+        for column_name in self.colnames:
+            dtypes.append(definitions.column_dtype.get(column_name,
+                                                       definitions.column_dtype['default']))
+            column_units.append(definitions.column_unit.get(column_name, units.dimensionless_unscaled))
+            description[column_name] = definitions.column_description.get(column_name, None)
+        self._table = QTable(names=self.colnames,
+                             masked=True,
+                             units=column_units,
+                             dtype=dtypes,
+                             meta=self.meta,
+                             descriptions=description)
+        return self._table
+
+
+class ModelOutputFile(ResultsFile):
+    """
+    Output format used to store the input model, used when model is parametric,
+    and you want to keep a record of input for diagnostics
+    """
+
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
+                'comp', 'j', 'k', 'x', 'y', 'z']
+
+    def __init__(self, **args):
+        super().__init__(**args)
+        for element in ['x', 'y', 'z']:
+            self.mask_these_if_not_detected.remove(element)
+
+
+class DetectFile(ResultsFile):
+    """
+    Detected object output file structure.
+    """
+    colnames = ['a', 'e', 'q', 'inc', 'j', 'k', 'node', 'peri', 'M', 'H',  'band', 'color', 'comp',
+                'flag', 'Survey', 'eff',
+                'm_int', 'm_rand', 'h_rand', 'Mt',
+                'RA', 'DEC', 'r', 'delta', 'x', 'y', 'z']
+
+
+class FakeFile(ResultsFile):
+    """
+    List of positions of artificial objects to add to the file.
+    """
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'mag', 'dra', 'ddec', 'RA', 'DEC']
+
+
+class TrackFile(ResultsFile):
+    """
+    Tracked object output file structure.
+    """
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r',
+                'Mt', 'm_rand', 'H_rand', 'band', 'Survey', 'comp', 'j', 'k']
+
+
+class ModelFileEcsv(ModelFile, OSSSSimFile):
+    """
+    A class to drive the SSim using a standard model file.
+
+    ModelFile opens file and reads the header for the epoch, seed, longitude_neptune and colors
+    and then loops over or randomly offsets into the file to read model objects.
+    """
+
+    def __init__(self, filename, randomize=False):
+        super().__init__(filename)
+        self.filename = filename
+        self._table = None
+        if randomize:
+            DeprecationWarning("Randomize is no longer supported.")
+        self.randomize = False
+        self._header = None
+        self._header_parsed = False
+        self._colnames = None
+        self._colors = None
+        self._epoch = None
+        self._longitude_neptune = None
+        self._seed = None
+        self.header_lines = []
+        self._f_obj = open(self.filename, 'r')
+        self.f_loc = 0
+        self._targets = None
+        self._f = None
+        self._last_row_written = 0
+
+    @classmethod
+    def read(cls, filename) -> 'ModelFileEcsv':
+        model_file = cls(filename)
+        model_file._load_table_data()
+        return model_file
+
+    def _load_table_data(self) -> None:
+        self._table = QTable.read(self.filename, format=INITIAL_TABLE_FORMAT)
+        self._last_row_written = len(self._table)
+
+    def __iter__(self):
+        return iter(self.table)
+
+    def __len__(self):
+        return len(self.table)
+
+    @property
+    def header(self) -> dict:
+        return self.table.meta
+
+    @property
+    def column_names(self) -> list[str]:
+        return self.table.colnames
+
+    @property
+    def table(self) -> QTable:
+        if self._table is None:
+            self._load_table_data()
+        return self._table
+
+    @property
+    def targets(self):
         """
-        Args:
-            func (func): the function that will be used for the H-distribution.
-            kwargs (dict): A dictionary of parameters used by the H distribution function.
+        targets set by looping over the entire file and returning a 'QTable'.
+        This can be used when you want access to the
+        entire table of data rather than just reading one-line at a time.
         """
-        self.params = kwargs
-        self.func = func
-
-    def __call__(self):
-        return self.func(**self.params) * units.mag
+        return self.table
 
 
-class Parametric(ABC):
+class Parametric(OSSSSimFile):
     """
     This abstract class defines methods needed to build a parametric
     Outer Solar System model for use as a model input for OSSSSim
     """
 
     def __init__(self,
-                 size: int = 1000000,
-                 seed: int = 123456789,
-                 epoch: Quantity = 2456839.5 * units.day,
-                 comp: str = 'Cls',
-                 longitude_neptune: Quantity = 5.876 * units.rad,
-                 H_min = -1,
-                 H_max = 11,
+                 size: int = definitions.DEFAULT_SIZE,
+                 seed: int = definitions.DEFAULT_SEED,
+                 epoch: Time = definitions.Neptune['Epoch'],
+                 component: str = 'TNO',
+                 longitude_neptune: Quantity = definitions.Neptune['Longitude'],
+                 H_min: float = definitions.H_MIN,
+                 H_max: float = definitions.H_MAX,
+                 model_band: str = definitions.DEFAULT_MODEL_BAND,
+                 colors: dict = None,
                  **kwargs) -> None:
         """
         Set up the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
@@ -450,166 +618,173 @@ class Parametric(ABC):
             longitude_neptune: heliocentric J2000 longitude of neptune at Epoch
 
         """
+        super().__init__(filename=None)
         # initialize the internal variables so they are empty.
-        self._a = self._e = self._inc = self._node = self._peri = self._M = None
-        self._H = self._lc_gb = self._lc_phase = self._lc_period = self._lc_amplitude = None
-        self._phi = self._resamp = self._colors = self._comp = None
-        self._cartesian = self._targets = self._iter = self._sim = None
-
+        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'j', 'k', 'phi', 'resamp']
+        self.j_distribution = self.k_distribution = [0,]*size
+        self._sim = self._seed = self._epoch = self._longitude_neptune = None
         if seed is None:
             seed = numpy.random.randint(1, 999999999)
-        self.seed = seed
+        if colors is None:
+            colors = PhotSpec()
+        if 'default' not in colors.colors:
+            colors.colors['default'] = PhotSpec.COLORS['default']
+        component = component.replace(" ", "_")
+        self.meta = dict([('Seed', seed),
+                          ('Epoch', epoch),
+                          ('Longitude_Neptune', longitude_neptune),
+                          ('Colors', colors.colors),
+                          ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
+                          ('Component', component),
+                          ('Model_Band', model_band)])
         self.size = size
+        self.comp = component
         self.H_max = H_max
         self.H_min = H_min
+        self.model_band = model_band
         self.distributions = distributions.Distributions(self.seed, self.size)
-        self.longitude_neptune = longitude_neptune  # Neptune's mean longitude on 1 Jan 2013
-        self.a_neptune = 30.07 * units.au
-        self.comp = comp.replace(" ", "_")
-        self.epoch = epoch
+        self.a_neptune = definitions.Neptune['SemimajorAxis']
+        for element in self.orbital_elements:
+            setattr(self, f"_{element}", None)
         self.rebound_archive = f"Rebound_Archive.bin"
+        self.power_knee_divot_params = dict([('alpha_bright', 1.1),
+                                             ('alpha_faint', 0.4),
+                                             ('h_break', 7.5),
+                                             ('h_max', self.H_max),
+                                             ('h_min', self.H_min)])
+        self._iter = None
+        self._targets = None
+        self.cartesian = Cartesian(epoch=self.epoch)
+        self._init_elements()
 
     @property
-    def sim(self) -> rebound.Simulation:
-        """
-        A rebound Simulation object used to compute the cartesian locations of the particles in this model.
-        """
-        if self._sim is None:
-            if not os.access(self.rebound_archive, os.F_OK):
-                _sim = rebound.Simulation()
-                _sim.add("Sun")
-                _sim.add("Jupiter")
-                _sim.add("Saturn")
-                _sim.add("Uranus")
-                _sim.add("Neptune")
-                _sim.move_to_com()
-                _sim.save_to_file(self.rebound_archive)
-                del _sim
-            self._sim = rebound.Simulation(self.rebound_archive)
-        return self._sim
+    def a(self):
+        if self._a is None:
+            self._a = self.a_distribution
+        return self._a
 
     @property
-    def cartesian(self) -> dict:
-        """
-        provide the state vector of the orbits.
-
-        Returns:
-            (dict[ndarray, ndarray, ndarray, ndarray, ndarray, ndarray]): dictionary of x/y/z/vx/vy/vz
-        """
-        if self._cartesian is None:
-            for i in range(self.size):
-                self.sim.add(a=self.a[i].to('au').value,
-                             e=self.e[i],
-                             inc=self.inc[i].to('rad').value,
-                             Omega=self.node[i].to('rad').value,
-                             omega=self.peri[i].to('rad').value,
-                             M=self.M[i].to('rad').value)
-            self._cartesian = {}
-            for s in ['x', 'y', 'z']:
-                self._cartesian[s] = [p.__getattribute__(s) for p in self.sim.particles[5:]] * units.au
-            for s in ['vx', 'vy', 'vz']:
-                self._cartesian[s] = [p.__getattribute__(s) * (2 * numpy.pi) for p in self.sim.particles[5:]] * \
-                                     units.au / units.year
-
-        return self._cartesian
-
-    @property
-    @abstractmethod
-    def a(self) -> Quantity:
-        """
-        J2000 Heliocentric semi-major axis.
-        """
-        pass
-
-    @property
-    @abstractmethod
     def e(self):
-        """
-        J2000 Heliocentric eccentricity
-        """
-        pass
+        if self._e is None:
+            self._e = self.e_distribution
+        return self._e
 
     @property
-    @abstractmethod
-    def inc(self) -> Quantity:
-        """
-        J2000 heliocentric inclination of orbit
-        """
-        pass
+    def inc(self):
+        if self._inc is None:
+            self._inc = self.inc_distribution
+        return self._inc
 
     @property
-    def node(self) -> Quantity:
-        """
-        Return uniformly distributed nodes.
-        """
-        if self._node is None:
-            self._node = self.distributions.uniform(0, 2 * numpy.pi) * units.rad
-        return self._node
-
-    @property
-    def peri(self) -> Quantity:
-        """
-        Distribute peri uniformly.
-        """
-        if self._peri is None:
-            self._peri = self.distributions.uniform(0, 2 * numpy.pi) * units.rad
-        return self._peri
-
-    @property
-    def M(self) -> Quantity:
-        """
-        Return uniformly distributed mean anomalies
-        """
+    def M(self):
         if self._M is None:
-            self._M = self.distributions.uniform(0, 2 ** 5 * numpy.pi) * units.rad
+            self._M = self.M_distribution
         return self._M
 
     @property
-    def h_distribution(self):
-        return HDistribution(self.distributions.power_knee_divot,
-                             **dict([('alpha_bright', 1.1),
-                                     ('alpha_faint', 0.4),
-                                     ('h_break', 7.5),
-                                     ('h_max', self.H_max),
-                                     ('h_min', self.H_min)]))
+    def peri(self):
+        if self._peri is None:
+            self._peri = self.peri_distribution
+        return self._peri
 
     @property
-    def H(self) -> Quantity:
-        """A distribution of H values"""
-        # define the default size distribution parameters.
+    def node(self):
+        if self._node is None:
+            self._node = self.node_distribution
+        return self._node
+
+    @property
+    def H(self):
         if self._H is None:
-            self._H = self.h_distribution()
+            self._H = self.H_distribution
         return self._H
 
     @property
-    def epoch(self) -> Quantity:
-        """
-        Epoch, in Julian Days, of the orbital elements.
-        """
-        return self._epoch
+    def j(self):
+        if self._j is None:
+            self._j = self.j_distribution
+        return self._j
 
-    @epoch.setter
-    def epoch(self, value: Quantity):
-        if isinstance(value, Quantity):
-            value = value.to('day').value
-        if isinstance(value, Time):
-            value = value.jd
-        self._epoch = value * units.day
-        # self._epoch = self.distributions.constant(value.to('day').value) * units.day
+    @property
+    def k(self):
+        if self._k is None:
+            self._k = self.k_distribution
+        return self._k
+
+    @property
+    def header(self) -> dict:
+        return self.meta
+
+    @property
+    def column_names(self) -> list[str]:
+        return self.table.colnames
+
+    def _init_elements(self):
+        """
+        Initialize the distributions to trigger generating a new set of model objects
+        """
+        for element in self.orbital_elements:
+            setattr(    self, f"_{element}", None)
+        self._iter = self._targets = self._cartesian = self._sim = None
+
+    @abstractmethod
+    def a_distribution(self) -> Quantity:
+        """
+        Semi-major axis of the orbit.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def e_distribution(self) -> Quantity:
+        """
+        Semi-major axis of the orbit.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def inc_distribution(self) -> numpy.ndarray:
+        """
+        Semi-major axis of the orbit.
+        """
+        pass
+
+    @property
+    def node_distribution(self) -> Quantity:
+        """
+        Return uniformly distributed nodes.
+        """
+        return self.distributions.uniform(0, 2 * numpy.pi) * units.rad
+
+    @property
+    def peri_distribution(self) -> Quantity:
+        """
+        Distribute peri uniformly.
+        """
+        return self.distributions.uniform(0, 2 * numpy.pi) * units.rad
+
+    @property
+    def M_distribution(self) -> Quantity:
+        """
+        Return uniformly distributed mean anomalies
+        """
+        return self.distributions.uniform(0, 2 * numpy.pi) * units.rad
+
+    @property
+    def H_distribution(self) -> Quantity:
+        """A distribution of H values"""
+        return self.distributions.power_knee_divot(**self.power_knee_divot_params) * units.mag
 
     @property
     def comp(self) -> list:
         """
         Label for the component being generated.
         """
-        if self._comp is None:
-            self.comp = 'Unk'
-        return self._comp
+        return [self._comp,] * self.size
 
     @comp.setter
     def comp(self, value: (str, list)):
-        if type(value) == str:
-            value = [value, ]*self.size
         self._comp = value
 
     @property
@@ -617,60 +792,30 @@ class Parametric(ABC):
         """
         Opposition surge effect as define in Bowell
         """
-        if self._lc_gb is None:
-            self._lc_gb = self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['gb'].to('mag').value) * units.mag
-        return self._lc_gb
+        return self.distributions.constant(definitions.LIGHT_CURVE_PARAMS['gb'].value) * units.mag
 
     @property
     def lc_phase(self) -> Quantity:
         """
         Phase of lightcurve at self.epoch
         """
-        if self._lc_phase is None:
-            self._lc_phase = self.distributions.uniform(0, 2*numpy.pi) * units.rad
-        return self._lc_phase
+        return self.distributions.uniform(0, 2*numpy.pi) * units.rad
 
     @property
     def lc_period(self) -> Quantity:
         """
         period of lightcurve
         """
-        if self._lc_period is None:
-            self._lc_period = self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['period'].to('day').value) * units.day
-        return self._lc_period
+        return self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['period'].value) * units.day
 
     @property
     def lc_amplitude(self) -> Quantity:
         """
         peak-to-peak amplitude of lightcurve
         """
-        if self._lc_amplitude is None:
-            self._lc_amplitude = self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['amplitude'].to('mag').value) * units.mag
-        return self._lc_amplitude
+        return self.distributions.uniform(0, definitions.LIGHT_CURVE_PARAMS['amplitude'].value) * units.mag
 
-    @property
-    def colors(self) -> Quantity:
-        """
-        colors of objects expressed as a list of list:
-
-        [ [ (g-x), (g-r), (i-x), (z-x), (u-x), (V-x), (B-x), (R-x), (I-x), (w-x) ], ... ]
-        """
-        if self._colors is None:
-            g_x = self.distributions.normal(0.7, 0.2) * units.mag  # mu 0.7 and std 0.2 (from CFEPS data)
-            r_x = self.distributions.constant(0) * units.mag
-            i_x = self.distributions.constant(0) * units.mag
-            z_x = self.distributions.constant(0) * units.mag
-            u_x = self.distributions.constant(0) * units.mag
-            V_x = self.distributions.constant(0) * units.mag
-            B_x = self.distributions.constant(0) * units.mag
-            R_x = self.distributions.constant(-0.1) * units.mag
-            I_x = self.distributions.constant(0) * units.mag
-            w_x = self.distributions.constant(0) * units.mag
-
-            self._colors = numpy.column_stack((g_x, r_x, i_x, z_x, u_x, V_x, B_x, R_x, I_x, w_x))
-        return self._colors
-
-    def _generate_targets(self):
+    def _generate_targets(self) -> QTable:
         """
         Generate the orbit elements and properties of a list of targets to be passed to the simulator.
 
@@ -681,26 +826,31 @@ class Parametric(ABC):
         before passing to the SurveySubsF95.detos1
 
         Must define at least {'a': [], 'e': [], 'inc': [], 'node': [], 'peri': [], 'M': [], 'H': []}
-        see OSSSSim.simulate for full list of keys that can be returned.
+        see sim for full list of keys that can be returned.
 
         Returns:
             (QTable or dict): set of Quantity objects describing targets.
         """
-        self._a = self._e = self._inc = self._node = self._peri = self._M = None
-        self._H = self._lc_gb = self._lc_phase = self._lc_period = self._lc_amplitude = None
-        self._resamp = self._colors = self._cartesian = self._sim = None
+        rows = {}
+        for element in ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'j', 'k', 'comp',
+                        'lc_gb', 'lc_phase', 'lc_period', 'lc_amplitude']:
+            rows[element] = getattr(self,element)
 
-        return QTable([self.a, self.e, self.inc, self.node, self.peri, self.M,
-                       self.cartesian['x'], self.cartesian['y'], self.cartesian['z'],
-                       self.cartesian['vx'], self.cartesian['vy'], self.cartesian['vz'],
-                       self.H, self.lc_gb, self.lc_phase, self.lc_period, self.lc_amplitude,
-                       self.colors, self.comp],
-                      names=['a', 'e', 'inc', 'node', 'peri', 'M',
-                             'x', 'y', 'z',
-                             'vx', 'vy', 'vz',
-                             'H', 'lc_gb', 'lc_phase', 'lc_period', 'lc_amplitude',
-                             'colors', 'comp',
-                             ])
+        pos_zeros = numpy.zeros(self.size)*units.au
+        vel_zeros = numpy.zeros(self.size)*units.au/units.yr
+        carts = ['x', 'y', 'z']
+        for cart in carts:
+            rows[cart] = pos_zeros
+        carts = ['vx', 'vy', 'vz']
+        for cart in carts:
+            rows[cart] = vel_zeros
+        table = QTable(self.cartesian(rows=rows))
+        table['q'] = table['a'] * (1 - table['e'])
+        return table
+
+    @property
+    def table(self):
+        return self.targets
 
     @property
     def targets(self):
@@ -712,30 +862,14 @@ class Parametric(ABC):
             self._targets = self._generate_targets()
         return self._targets
 
-    @targets.setter
-    def targets(self, value):
-        """
-        set targets to Table stored in value.
-
-        Args:
-            value (Table or None): value to set targets to.
-        """
-        if not isinstance(value, QTable) and value is not None:
-            raise ValueError(f"Attempted to set targets table to something that isn't a table: {value}")
-        self._targets = value
-
     @property
     def iter(self):
         """
-        An iterator on self.targets table
+        An iterator on targets table
         """
         if self._iter is None:
             self._iter = iter(self.targets)
         return self._iter
-
-    @iter.setter
-    def iter(self, value):
-        self._iter = value
 
     def __iter__(self):
         return self
@@ -751,37 +885,34 @@ class Parametric(ABC):
         except StopIteration:
             # Clear the targets table so a new distribution will be generated.
             self._iter = None
-            self.targets = None
+            self._init_elements()
             row = next(self.iter)
-
-        return row
+        return dict(row)
 
 
 class Implanted(Parametric, ABC):
     """"
     Objects that were implanted into the Kuiper belt region and appear to share a SFD.
     """
-    def __init__(self, sigma_i=20, **kwargs):
+    def __init__(self, sigma_i=12, **kwargs):
         super().__init__(**kwargs)
         self.sigma_i = sigma_i
 
     @property
     def h_distribution(self):
-        return HDistribution(self.distributions.implanted_sfd,
-                             **dict([('h_max', self.H_max),
-                                     ('h_min', self.H_min)]))
+        return distributions.HDistribution(self.distributions.implanted_sfd,
+                                           **dict([('h_max', self.H_max),
+                                                   ('h_min', self.H_min)]))
 
     @property
-    def inc(self):
+    def inc_distribution(self):
         """
         Distribute the inclinations based on Brown 2001 functional form.
         """
-        if self._inc is None:
-            self._inc = self.distributions.truncated_sin_normal(0,
-                                                                numpy.deg2rad(self.sigma_i),
-                                                                0,
-                                                                numpy.deg2rad(45)) * units.rad
-        return self._inc
+        return self.distributions.truncated_sin_normal(0,
+                                                       numpy.deg2rad(self.sigma_i),
+                                                       0,
+                                                       numpy.deg2rad(45)) * units.rad
 
 
 class Resonant(Implanted):
@@ -791,16 +922,14 @@ class Resonant(Implanted):
     """
 
     def __init__(self,
-                 size=10 ** 6,
+                 size=10 ** 5,
                  seed=123456789,
                  comp='Res',
-                 longitude_neptune=5.876 * units.rad,
-                 epoch=2456839.5 * units.day,
                  j=None,
                  k=None,
-                 res_amp_low=20 * units.deg,
-                 res_amp_mid=95 * units.deg,
-                 res_amp_high=130 * units.deg,
+                 res_amp_low=0 * units.deg,
+                 res_amp_mid=5 * units.deg,
+                 res_amp_high=10 * units.deg,
                  res_centre=180 * units.deg, **kwargs):
         """
         Set up the boundaries of the simulation.  size and seed are used to initialize a dist_utils.Distribution class.
@@ -834,15 +963,13 @@ class Resonant(Implanted):
         """
         super().__init__(size=size,
                          seed=seed,
-                         epoch=epoch,
-                         longitude_neptune=longitude_neptune,
-                         j=j, k=k, comp=comp, **kwargs)
-
+                         comp=comp, **kwargs)
         if j is None or k is None:
             ValueError(f"Resonance j/k cannot be None for Resonant Model objects")
-        self.j = j
-        self.k = k
-        self._res_amp_low = self._res_amp_high = self._res_amp_mid = self._phi0 = None
+        self.j_distribution = self.distributions.constant(j)
+        self.k_distribution = self.distributions.constant(k)
+        self._phi = self._resamp = None
+        self.orbital_elements.extend(['resamp', 'phi', 'j', 'k'])
         self.res_amp_low = res_amp_low
         self.res_amp_high = res_amp_high
         self.res_amp_mid = res_amp_mid
@@ -885,66 +1012,78 @@ class Resonant(Implanted):
         self._phi0 = value
 
     @property
-    def a(self) -> Quantity:
+    def a_distribution(self) -> Quantity:
         """
         J2000 Heliocentric semi-major axis sampled as +/- 0.5 from the resonance semi-major axis value.
         """
-        if self._a is None:
-            a0 = (self.a_neptune ** (3 / 2) * self.j / self.k) ** (2 / 3)
-            a_min = a0 - 0.5 * units.au
-            a_max = a0 + 0.5 * units.au
-            self._a = self.distributions.uniform(a_min.to('au').value,
-                                                 a_max.to('au').value) * units.au
-        return self._a
+        a0 = (self.a_neptune ** (3 / 2) * self.j[0] / self.k[0]) ** (2 / 3)
+        a_min = a0 - 0.5 * units.au
+        a_max = a0 + 0.5 * units.au
+        return self.distributions.uniform(a_min.to('au').value,
+                                          a_max.to('au').value) * units.au
 
     @property
-    def e(self) -> numpy.array:
+    def e_distribution(self) -> numpy.array:
         """
         Set the maximum value of 'e' based on the peri-center location of Neptune,
         minimum value set to 0.02 then randomly sample this
         range of e.
         """
-        if self._e is None:
-            self._e = self.distributions.uniform(0.05, 0.25)
-        return self._e
+        return self.distributions.uniform(0.19, 0.2)
 
     @property
-    def peri(self) -> Quantity:
+    def resamp(self):
+        """
+        amplitude of the distribution of resonance centres around libration centre, used in self.phi
+        """
+        if self._resamp is None:
+            self._resamp = self.resamp_distribution
+        return self._resamp
+
+    @property
+    def phi(self):
+        """
+        Libration angle of the resonance.
+        """
+        if self._phi is None:
+            self._phi = self.phi_distribution
+        return self._phi
+
+    @property
+    def M_distribution(self) -> Quantity:
+        """
+        Return uniformly distributed mean anomalies
+        """
+        return self.distributions.uniform(0, self.k[1]*2*numpy.pi) * units.rad
+
+    @property
+    def peri_distribution(self) -> Quantity:
         """
         Distribute peri centre to obey the phi/M/_longitude_neptune constraints.
 
         See Volk et al. 2016 for info on computing peri given a choice phi.
         """
-        if self._peri is None:
-            # self._peri = (self.phi - p*self.M + q*self.longitude_neptune - q*self.node)/q
-            self._phi = None  # reset the phi distribution.
-            p = self.j
-            q = self.k
-            self._peri = ((self.phi - p * self.M + q * self.longitude_neptune - q * self.node) / q) % (360 * units.deg)
-            # below is different algebra to get the same result
-            # self._peri = (self.phi / self.k - self.j * self.M / self.k + self.longitude_neptune - self.node)
-            # % (360 * units.deg)
-        return self._peri
+        # below is different algebra to get the same result
+        # self._peri = (self.phi / self.k - self.j * self.M / self.k + self.longitude_neptune - self.node)
+        # % (360 * units.deg)
+        # self._peri = (self.phi - p*self.M + q*self.longitude_neptune - q*self.node)/q
+        # return (self.phi - self.j * self.M + self.k * (self.longitude_neptune - self.node)) / self.k
+        return ((self.phi - self.j * self.M)/self.k + self.longitude_neptune - self.node) % (360 * units.deg)
 
     @property
-    def phi(self) -> Quantity:
+    def phi_distribution(self) -> Quantity:
         """
         Compute the phi, libration centre from the resonance centre and sampling the
         resonance amplitude via sin() weighting.
         """
-        if self._phi is None:
-            self._resamp = None  # Reset the resonant libration amplitude distribution.
-            amplitudes = numpy.sin(self.distributions.uniform(0, 2 * numpy.pi))
-            self._phi = self.res_centre + amplitudes * self.resamp
-        return self._phi
+        amplitudes = numpy.sin(self.distributions.uniform(0, 2 * numpy.pi))
+        return self.res_centre + amplitudes * self.resamp
 
     @property
-    def resamp(self) -> Quantity:
+    def resamp_distribution(self) -> Quantity:
         """
         amplitude of the distribution of resonance centres around libration centre, used in self.phi
         """
-        if self._resamp is None:
-            self._resamp = self.distributions.triangle(self.res_amp_low.to('rad').value,
-                                                       self.res_amp_mid.to('rad').value,
-                                                       self.res_amp_high.to('rad').value) * units.rad
-        return self._resamp
+        return self.distributions.triangle(self.res_amp_low.to('rad').value,
+                                           self.res_amp_mid.to('rad').value,
+                                           self.res_amp_high.to('rad').value) * units.rad

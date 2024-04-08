@@ -1,12 +1,13 @@
 import unittest
 from ossssim.models import ModelFile
 from astropy import units
+from astropy.time import Time
 
 
 class SSimModelFileTest(unittest.TestCase):
 
     def setUp(self):
-        self.epoch = 2453157.50000 * units.day
+        self.epoch = Time(val=2453157.50000, format='jd')
         self.longitude_neptune = 5.489 * units.radian
         self.colors = [float(x.replace("d","e")) for
                        x in "0.0d0 -0.70d0 -1.2d0 -1.7d0 0.8d0 0.5d0  0.1d0 -0.8d0 -1.2d0 0.0d0".split()] * units.mag
@@ -31,8 +32,10 @@ class SSimModelFileTest(unittest.TestCase):
         self.assertAlmostEqual(self.longitude_neptune, self.model.longitude_neptune)
 
     def test_colors(self):
-        for idx in range(len(self.colors)):
-            self.assertEqual(self.colors[idx], self.model.colors[idx])
+        for idx, key in enumerate(list(self.model.colors.colors['default'])):
+            if idx > len(self.colors)-1:
+                break
+            self.assertEqual(self.colors[idx], self.model.colors.colors['default'][key])
 
     def test_colnames(self):
         self.assertEqual(self.colnames, self.model.colnames)
@@ -49,6 +52,9 @@ class SSimModelFileTest(unittest.TestCase):
             for key in self.row:
                 self.assertEqual(self.row[key], row[key])
             break
+
+    def tearDown(self):
+        self.model.close()
 
 
 if __name__ == '__main__':

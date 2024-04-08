@@ -77,66 +77,24 @@ class Symmetric(Resonant):
 
 
     @property
-    def inc(self):
+    def inc_distribution(self):
         """
         Distribute the inclinations based on Brown 2001 functional form.
         """
-        if self._inc is None:
-            self._inc = self.distributions.truncated_sin_normal(0,
-                                                                numpy.deg2rad(self.sigma_i),
-                                                                0,
-                                                                numpy.deg2rad(45)) * units.rad
-        return self._inc
+        return self.distributions.truncated_sin_normal(0,
+                                                       numpy.deg2rad(self.sigma_i),
+                                                       0,
+                                                       numpy.deg2rad(45)) * units.rad
 
     @property
     def e(self):
         """
         Set values of 'e' by sampling 'q' and the setting 'e'
         """
-        if self._e is None:
-            # self._e = self.distributions.uniform(0.3,0.33)
-            # return self._e
-            # max is set by q but also limited by users choice of e_max.
-            res_a = 29.9*((self.j[0]/self.k[0])**(2/3))
-            q = self.distributions.truncated_normal(self.q_c, self.q_w, res_a*(1-0.8), res_a*(1-0.001))
-            self._e = 1 - q/res_a
-        return self._e
+        res_a = 29.9*((self.j[0]/self.k[0])**(2/3))
+        q = self.distributions.truncated_normal(self.q_c, self.q_w, res_a*(1-0.8), res_a*(1-0.001))
+        return 1 - q/res_a
 
-    @property
-    def off_resamp(self):
-        """
-        Uniformly distributed across the width
-        """
-        if self._resamp is None:
-            # self._resamp = self.distributions.uniform(0., 1.) * units.deg
-            # return self._resamp
-            self._resamp = self.distributions.uniform(80., 160.) * units.deg
-        return self._resamp
-
-    @property
-    def phi(self):
-        """
-        Resonance centre is the libration centre +/- the resamp
-
-        The default phi is distributed using a sin weighted distribution but in the OSSOS++ model this was switched to uniform for
-        the symmetric resonance.
-        """
-        if self._phi is None:
-            self._phi = self.phi0 + self.distributions.uniform(-1, 1) * self.resamp
-        return self._phi
-
-    @property
-    def H(self):
-        """
-        Generate an H distribution following Kavelaars et al. (2021).  
-        """
-        if self._H is None:
-            fp = numpy.arange(self.H_min, self.H_max, 0.1)
-            xp = H_cfd(fp)
-            xp = xp/xp[-1]
-            x = self.distributions.rnd_gen.uniform(xp[0], xp[-1], self.distributions.size)
-            self._H = numpy.interp(x, xp, fp)
-        return self._H
 
 
 class Asymmetric(Symmetric):

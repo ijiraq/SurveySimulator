@@ -5,6 +5,7 @@ import numpy
 from . import definitions
 from . import funcs
 
+KAVELAARS_VARIABLY_TAPERED = {'Ho': -2.6, 'Hb': 8.1, 'alpha_SI': 0.67, 'beta_SI': 0.42}
 
 class HDistribution:
     """
@@ -154,7 +155,6 @@ class Distributions:
         ----------
         constant = The chosen constant value.
         """
-
         return_array = numpy.full(self.size, constant)
 
         return return_array
@@ -283,25 +283,24 @@ class Distributions:
         f = lambda l: numpy.interp(l, y.cumsum() / y.sum(), x)
         return f(self.rnd_gen.random(self.size))
 
-    def cold_sfd(self, h_min:float, h_max:float):
+    def cold_sfd(self, h_min: float, h_max: float):
         """
         Return a set of H values drawn from the tapered powerlaw SFD described in Kavelaars et al. 2021
         """
         # Merge them and then accumulate and normalize
-        fp = numpy.linspace(h_min, h_max, num=1000)
-        xp = funcs.cold_cfd(fp)
-        cdf = xp.cumsum()
-        xp = cdf / cdf[-1]
+        fp = numpy.linspace(h_min, h_max+(h_max-h_min)/1000, num=1000)
+        cdf = funcs.cold_cfd(fp)
+        xp = cdf / cdf.max()
 
         # Generates an array (of a size given in our instance initialization) of uniformly distributed random values
         # ranging from the minimum value of our normalized cdf (xp[0] which is >=0) to the maximum value (1).
-        interpolator = self.rnd_gen.uniform(xp[0], xp[-1], self.size)
+        interpolator = self.rnd_gen.uniform(0, 1, self.size)
 
         # Calls the interpolation function to generate a randomized array, corresponding to the probability
         # density, by interpolating between the given points.
         return numpy.interp(interpolator, xp, fp)
 
-    def implanted_sfd(self, h_min:float, h_max:float):
+    def implanted_sfd(self, h_min: float, h_max: float):
         """
         Return a set of H values distributed according to the PL+PL+taperred+PL SFD!  From Petit et al. 2023 and
         Petit et al. 2022

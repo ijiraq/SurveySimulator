@@ -7,7 +7,7 @@ plotting.py -- Make a face-down solar system plot showing model object and detec
 
 read_model_from_file.py -- Using the standards < Driver.in format from the fortran side, read a model from a file
 
-ring.py -- Build a parametric model of a ring of objects and run the survey simulator using the CFEPS characterizations (supply the location) (input model is not saved)
+test_model.py -- Build a parametric model of a ring of objects and run the survey simulator using the CFEPS characterizations (supply the location) (input model is not saved)
 
 plutino.py -- Build a toy plutino model and run OSSSSim on that. (input model is not saved)
 

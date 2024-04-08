@@ -45,8 +45,8 @@ WORKDIR /opt/SSim/fortran/F95
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
 RUN pip3 install astroplan
-RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections 
-RUN apt-get install -y ttf-mscorefonts-installer
+# RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections 
+# RUN apt-get install -y ttf-mscorefonts-installer
 
 FROM base as deploy
 WORKDIR /opt/SSim/python

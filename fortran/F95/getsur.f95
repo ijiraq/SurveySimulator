@@ -314,16 +314,7 @@ contains
 !               -2 : double hyperbolic tangent
 !               -1 : single hyperbolic tangent
 !               >0 : number of bins in lookup table
-!     c%f   : filter index (I4)
-!                1 : g
-!                2 : r
-!                3 : i
-!                4 : z
-!                5 : u
-!                6 : B
-!                7 : V
-!                8 : R
-!                9 : I
+!     c%f   : filter index (I4) IACHAR(FILTER)
 !     c%r_cut : global rate cuts of search (t_ratecut)
 !     c%mag_er : parameters for magnitude uncertainty and skew (6*R8)
 !     c%photf : fractions of cases with 1, 2 and 3 photometric measures (3*R8)
@@ -398,27 +389,9 @@ contains
        in_func = .false.
     else if (word(1)(1:lw(1)) .eq. 'filter') then
        call parse (line(eq_ind+1:), nw_max-1, nw, word(2:), lw(2:))
-       if (word(2)(1:1) .eq. 'g') then
-          c%f = 1
-       else if (word(2)(1:1) .eq. 'r') then
-          c%f = 2
-       else if (word(2)(1:1) .eq. 'i') then
-          c%f = 3
-       else if (word(2)(1:1) .eq. 'z') then
-          c%f = 4
-       else if (word(2)(1:1) .eq. 'u') then
-          c%f = 5
-       else if (word(2)(1:1) .eq. 'B') then
-          c%f = 6
-       else if (word(2)(1:1) .eq. 'V') then
-          c%f = 7
-       else if (word(2)(1:1) .eq. 'R') then
-          c%f = 8
-       else if (word(2)(1:1) .eq. 'I') then
-          c%f = 9
-       else
-          goto 1500
-       end if
+!      store the ascii representation of the single character filter name
+!      We add '1' here so that the letter 'A' has code 1 and not 0 (fortran)
+       c%f = iachar(word(2)(1:1))-iachar('A')+1
        fi = .true.
        in_rates = .false.
        in_func = .false.

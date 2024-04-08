@@ -6,10 +6,97 @@ import random
 from astropy import units as u
 from astropy.units import Quantity
 from astropy.table import Row
+from astropy.time import Time
+
+from .color import PhotSpec
 from .lib import SurveySubsF95
 from . import definitions
-
+import rebound
+import os
+import numpy
+from . import definitions
 T_ORB_M_UNITS = definitions.T_ORB_M_UNITS
+
+
+class Cartesian(object):
+    """
+    A class to provide the cartesian state vector of a set of objects.
+    """
+    def __init__(self, epoch=definitions.Neptune['Epoch']):
+        self.epoch = epoch
+        self.rebound_archive = f"Rebound_Archive{epoch.jd}.bin"
+        self.initialize_sim()
+
+    def _make_rebound_archive_file(self):
+        _sim = rebound.Simulation()
+        _sim.add("Sun",  date=self.epoch.to_datetime())
+        _sim.add("Jupiter", date=self.epoch.to_datetime())
+        _sim.add("Saturn", date=self.epoch.to_datetime())
+        _sim.add("Uranus", date=self.epoch.to_datetime())
+        _sim.add("Neptune", date=self.epoch.to_datetime())
+        _sim.move_to_com()
+        _sim.save_to_file(self.rebound_archive)
+        del _sim
+
+    def initialize_sim(self):
+        """
+        Start/open a rebound Simulation object used to compute the cartesian locations of the particles in this model.
+        """
+        if not os.access(self.rebound_archive, os.F_OK):
+            self._make_rebound_archive_file()
+        return rebound.Simulation(self.rebound_archive)
+
+    def __call__(self, **kwargs) -> dict:
+        """
+        Provide the state vector of the orbits at Mt or M if Mt is not provided.
+
+
+        Returns:
+            dictionary of x/y/z/vx/vy/vz
+        """
+        sim = self.initialize_sim()
+        if "rows" not in kwargs:
+            return self.single_row(**kwargs)
+
+        rows = kwargs['rows']
+        for idx in range(len(rows['a'])):
+            sim.add(a=rows['a'][idx].to('au').value,
+                    e=rows['e'][idx],
+                    inc=rows['inc'][idx].to('rad').value,
+                    Omega=rows['node'][idx].to('rad').value,
+                    omega=rows['peri'][idx].to('rad').value,
+                    M=rows['M'][idx].to('rad').value,
+                    # M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
+                    )
+
+        for idx in range(len(rows['a'])):
+            for s in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
+                rows[s] = [getattr(p, s) * definitions.column_unit[s] for p in sim.particles[5:]]
+        return rows
+
+    def single_row(self, **kwargs):
+        """
+        Provide the state vector of the orbits at Mt or M if Mt is not provided.
+
+        Returns:
+            dictionary of x/y/z/vx/vy/vz
+        """
+        sim = self.initialize_sim()
+        sim.add(a=kwargs['a'].to('au').value,
+                e=kwargs['e'],
+                inc=kwargs['inc'].to('rad').value,
+                Omega=kwargs['node'].to('rad').value,
+                omega=kwargs['peri'].to('rad').value,
+                M=kwargs['M'].to('rad').value,
+                # M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
+                )
+        cartesian = {}
+        for s in ['x', 'y', 'z']:
+            cartesian[s] = sim.particles[-1].__getattribute__(s) * u.au
+        for s in ['vx', 'vy', 'vz']:
+            cartesian[s] = sim.particles[-1].__getattribute__(s) * (2 * numpy.pi) * u.au / u.year
+        return cartesian
+
 
 class OSSSSim:
     """
@@ -17,7 +104,6 @@ class OSSSSim:
 
     This class simulates the process of observing a model of the solar system using a set of characterized observations.
     """
-
 
     def __init__(self, characterization_directory):
         """
@@ -29,16 +115,18 @@ class OSSSSim:
         """
 
         self.characterization_directory = characterization_directory
+        self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
 
-    def simulate(self, row, seed=None, epoch=None, colors=None):
+    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None):
         """
         Pass the target elements to detos1 and determine if this target would be detected.
 
         Args:
             row (Row or dict): elements of the target to simulate
+            colors (PhotSpec): colors of the target index by 'g-x' etc, see below.
+            model_band (str): a single letter designator of the bandpass that the H values are provided in.
             seed (int): a seed to pass to the fortran code to allow reproducible simulations
             epoch (Quantity or float): JD of elements, can also be provided for each row sent to simulate
-            colors (dict): colors of the target index by 'g-x' etc, see below.
 
         Returns:
             Row or dict: the target elements/values at time of simulated detection.
@@ -76,10 +164,8 @@ class OSSSSim:
 
         Survey: a string indicating which field detected the target
 
-        The colors list declares the color of the KBO in multiple filters.  The 'x' refers to the bandpass that the values of 'H'
-        (provided to simulate) are provided in.  Thus, if the target passed to simulate provides H_r value the colors given should
-        be such that 'x' is replaced with 'r'.  The default vector expects that the "H" values are given in 'g' filter and colors
-        are fixed.  See ModelFile for more details.
+        The colors list declares the color of the KBO in multiple filters. The value of model_band_pass is
+        used to transform the color dictionary into colors in the bandpass of the model.
 
         A default light_curve_params dictionary is used if target provided to simulate doesn't have any, set in
         ossssim.definitions.LIGHT_CURVE_PARAMS
@@ -101,29 +187,30 @@ class OSSSSim:
                 setattr(o_m, colname.lower(), value)
 
         # attempt to detect this object
-        if 'colors' in row.keys():
-            colors = [x.to(u.mag).value for x in row['colors']]
+        color_offset_array = colors.colors_list(row['comp'], model_band)
+        if 'epoch' in row.keys():
+            epoch_jd = row['epoch']
         else:
-            colors = [definitions.COLORS[x].to(u.mag).value for x in definitions.COLORS]
-        # if isinstance(colors, dict):
-        #    # order the list correctly using the keys returned by the OrderedDict ModelFile.COLORS
-        #    colors = [ colors[x] for x in ModelFile.COLORS]
-        # colors = [ x.to(u.mag).value for x in colors]
-
-        epoch = 'epoch' in row.keys() and row['epoch'].to(u.day).value or epoch.to(u.day).value
+            epoch_jd = epoch
+        if isinstance(epoch_jd, Quantity):
+            epoch_jd = epoch_jd.to(u.day).value
+        if isinstance(epoch_jd, Time):
+            epoch_jd = epoch_jd.jd
         gb = 'gb' in row.keys() and row['gb'].to(u.mag).value or definitions.LIGHT_CURVE_PARAMS['gb'].to(u.mag).value
         phase = 'phase' in row.keys() and row['phase'].to(u.radian).value or definitions.LIGHT_CURVE_PARAMS['phase'].to(u.radian).value
         period = 'period' in row.keys() and row['period'].to(u.day).value or definitions.LIGHT_CURVE_PARAMS['period'].to(u.day).value
         amplitude = 'amplitude' in row.keys() and row.get('amplitude').to(u.mag).value or definitions.LIGHT_CURVE_PARAMS['amplitude'].to(u.mag).value
-        H = 'H' in row.keys() and row['H'].to(u.mag).value or ('h' in row.keys() and row['h'].to(u.mag).value or 0.0)
+        H = 'H' in row.keys() and row['H'].to(u.mag).value or ('h' in row.keys() and row['h'].to(u.mag).value or None)
+        if H is None:
+            raise ValueError("H or h must be provided to simulate")
 
         row['flag'], row['RA'], row['DEC'], row['d_ra'], row['d_dec'], row['r'], row['delta'], \
             row['m_int'], row['m_rand'], row['eff'], isur, row['Mt'], jdayp, ic, row['Survey'], \
             row['h_rand'], ierr = \
             SurveySubsF95.Surveysub.detos1(o_m,
-                                           epoch,
+                                           epoch_jd,
                                            H,
-                                           colors,
+                                           color_offset_array,
                                            gb,
                                            phase,
                                            period,
@@ -133,6 +220,8 @@ class OSSSSim:
         if ierr != 0:
             raise IOError(f"SSim failed with error code: {ierr}")
 
+        row['j'] = row.get('j', 0)
+        row['k'] = row.get('k', 0)
         row['delta'] *= u.au
         row['r'] *= u.au
         row['m_int'] *= u.mag
@@ -140,12 +229,21 @@ class OSSSSim:
         row['h_rand'] *= u.mag
         # ic gives the filter that the object was 'detected' in,
         # this allows us to determine the color of target
-        row['color'] = colors[ic - 1] * u.mag
+        if ic > 0:
+            ic = ic + ord('A') - 1
+            row['band'] = chr(ic)
+            row['color'] = color_offset_array[ic-ord('A')+1] * u.mag
+        else:
+            row['band'] = ''
+            row['color'] = 0*u.mag
         row['q'] = row['a'] * (1 - row['e'])
         row['Mt'] *= u.rad
         row['RA'] *= u.rad
         row['DEC'] *= u.rad
         row['Survey'] = row['Survey'].decode('utf-8')
+        if row['flag'] > 0:
+            row.update(self.cartesian(**row))
+        numpy.ma.array(row, mask=False)
 
         # m_int and h are in "x" band (filter of object creation)
         # m_rand and h_rand are in discovery filter
