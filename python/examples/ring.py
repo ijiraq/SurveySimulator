@@ -6,6 +6,7 @@ When run as a script, uses CFEPS survey characterization, runs until 28 sources 
 from ossssim.models import Parametric
 from ossssim import OSSSSim, DetectFile, ModelFile, definitions, plotter
 from astropy import units
+import os
 
 class Ring(Parametric):
     """
@@ -61,7 +62,7 @@ def run(model_filename,
         characterization_directory (str): Relative or absolute path to directory on disk where the characterization files are organized
         seed (int): random number seed, specifying allows reproducibility
         ntrack (int): < 0 continue for ntrack iterations;
-                      > 0 continue until n_tracked tracked detections;
+                      > 0 continue until ntrack tracked detections;
                       = 0 continue until input exhausted
     """
     ssim = OSSSSim(characterization_directory=characterization_directory)
@@ -82,7 +83,7 @@ def run(model_filename,
             detect_file.write_row(result)
         if result['flag'] > 2:
             n_track += 1
-        if (0 < ntrack < n_track) or (0 < -ntrack < n_iter):
+        if (0 < ntrack <= n_track) or (0 < -ntrack <= n_iter):
             break
 
     detect_file.write_footer(n_iter=n_iter, n_hits=n_hits, n_track=n_track)
@@ -103,9 +104,15 @@ def face_down_plot(model_file: str, detect_file: str) -> None:
     # plot.show()
     plot.savefig('ring.png')
 
+def delete_file_if_exists(filename):
+    if os.access(filename, os.F_OK):
+        os.remove(filename)
+
 
 if __name__ == '__main__':
     from ossssim import Characterizations
+    delete_file_if_exists('RingModel.dat')
+    delete_file_if_exists('RingDetect.dat')
     run('RingModel.dat', 'RingDetect.dat',
         Characterizations.surveys['CFEPS'],
         123456789,
