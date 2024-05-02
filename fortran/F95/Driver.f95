@@ -63,12 +63,12 @@ program Driver
   character(10) :: surna, time
   character(8) :: date
   character(5) :: zone
-  logical :: keep_going, finished
+  logical :: keep_going, finished, debug
 
   lun_h = 10
   lun_t = 11
   keep_going = .true.
-
+    debug = .false.
 ! Get arguments
 ! Seed for random number generator
   read (5, *, err=9999) seed
@@ -171,6 +171,7 @@ program Driver
 
 !        Determine if the object would be detected
      call Detos1 (o_m, epoch, h, color, gb, ph, period, amp, survey_dir, seed, &
+             debug, &
           flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
           jday_p, ic, surna, h_rand, ierr)
 

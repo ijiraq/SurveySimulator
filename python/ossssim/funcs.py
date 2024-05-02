@@ -242,7 +242,7 @@ def implanted_cfd(H:(numpy.array, float), alpha_elbow=0.15) -> numpy.array:
     # Make sure H can be treated as an order numpy array.
     N = H * 0.0
 
-    H_norm = -3.0 # Normalization of the SFD
+    H_norm = -3.0  # Normalization of the SFD
     # limit where we are considering dwarf planets. (Petit et al.)
     H_dwarf = 3.2
     alpha_dwarf = 0.16

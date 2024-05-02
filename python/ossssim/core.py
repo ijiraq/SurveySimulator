@@ -59,19 +59,18 @@ class Cartesian(object):
             return self.single_row(**kwargs)
 
         rows = kwargs['rows']
+        M = 'Mt' in rows and 'Mt' or 'M'
         for idx in range(len(rows['a'])):
             sim.add(a=rows['a'][idx].to('au').value,
                     e=rows['e'][idx],
                     inc=rows['inc'][idx].to('rad').value,
                     Omega=rows['node'][idx].to('rad').value,
                     omega=rows['peri'][idx].to('rad').value,
-                    M=rows['M'][idx].to('rad').value,
-                    # M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
+                    M=rows[M][idx].to('rad').value,
                     )
 
-        for idx in range(len(rows['a'])):
-            for s in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
-                rows[s] = [getattr(p, s) * definitions.column_unit[s] for p in sim.particles[5:]]
+        for s in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
+            rows[s] = [p.__getattribute__(s) * definitions.column_unit[s] for p in sim.particles[5:]]
         return rows
 
     def single_row(self, **kwargs):
@@ -87,8 +86,7 @@ class Cartesian(object):
                 inc=kwargs['inc'].to('rad').value,
                 Omega=kwargs['node'].to('rad').value,
                 omega=kwargs['peri'].to('rad').value,
-                M=kwargs['M'].to('rad').value,
-                # M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
+                M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
                 )
         cartesian = {}
         for s in ['x', 'y', 'z']:
@@ -117,7 +115,7 @@ class OSSSSim:
         self.characterization_directory = characterization_directory
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
 
-    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None):
+    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False):
         """
         Pass the target elements to detos1 and determine if this target would be detected.
 
@@ -127,6 +125,7 @@ class OSSSSim:
             model_band (str): a single letter designator of the bandpass that the H values are provided in.
             seed (int): a seed to pass to the fortran code to allow reproducible simulations
             epoch (Quantity or float): JD of elements, can also be provided for each row sent to simulate
+            debug (bool): if True, have Fortran detos routine create a log of detection process.
 
         Returns:
             Row or dict: the target elements/values at time of simulated detection.
@@ -216,10 +215,11 @@ class OSSSSim:
                                            period,
                                            amplitude,
                                            self.characterization_directory,
-                                           seed)
+                                           seed,
+                                           debug)
+
         if ierr != 0:
             raise IOError(f"SSim failed with error code: {ierr}")
-
         row['j'] = row.get('j', 0)
         row['k'] = row.get('k', 0)
         row['delta'] *= u.au

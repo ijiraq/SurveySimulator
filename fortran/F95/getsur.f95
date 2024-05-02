@@ -851,6 +851,10 @@ contains
     call read_file_name (survey, i1, i2, finished, len(survey))
     n_sur = 0
 200 continue
+    if (n_sur .ge. n_sur_max) then
+         ierr = 100
+         return
+    end if
        call read_sur (survey(i1:i2), lun_s, point, ierr)
 
        if (ierr .ne. 0) then

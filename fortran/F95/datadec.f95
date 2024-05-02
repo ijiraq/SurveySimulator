@@ -3,7 +3,7 @@ module datadec
   use poly_dec
 
   ! define length of array parameters
-  integer, parameter :: n_sur_max = 200, n_bin_max=30, n_r_max=10, &
+  integer, parameter :: n_sur_max = 2000, n_bin_max=30, n_r_max=10, &
        nw_max = 10
 
   ! define some useful constants

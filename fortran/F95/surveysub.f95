@@ -10,6 +10,7 @@ module surveysub
 contains
 
   subroutine Detos1 (o_m, jday, hx, color, gb, ph, period, amp, surnam, seed, &
+          debug, &
        flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
        jdayp, ic, surna, h_rand, ierr)
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
@@ -81,7 +82,8 @@ contains
 !f2py intent(in) period
 !f2py intent(in) amp
 !f2py intent(in) surnam
-!f2py intent(in,out) seed
+!f2py intent(in, out) seed
+!f2py intent(in) debug
 !f2py intent(out) flag
 !f2py intent(out) ra
 !f2py intent(out) dec
@@ -104,14 +106,17 @@ contains
 
     type(t_orb_m), intent(in) :: o_m
     integer, intent(inout) :: seed
-    integer, intent(out) :: flag, isur, ic, ierr
+    integer, intent(out) :: flag
+    integer, intent(out) :: isur, ic, ierr
+    logical, intent(in) :: debug
+
     real (kind=8), intent(in) :: jday, hx, color(:), gb, ph, period, amp
     real (kind=8), intent(out) :: ra, dec, d_ra, d_dec, r, delta, m_int, &
          m_rand, eff, mt, jdayp, h_rand
     character(*), intent(in) :: surnam
     character(10), intent(out) :: surna
 
-    integer, parameter :: screen = 6, keybd = 5, verbose = 9, &
+    integer, parameter :: screen = 6, keybd = 5, verbose = 6, &
          lun_s = 13, lun_h = 6
     type(t_orb_m), save :: o_ml
     type(t_obspos), save :: obspos(2)
@@ -130,11 +135,10 @@ contains
          incode, outcod, i_sur, nph
     character(13), save :: stra, stdec
     integer :: in_poly
-    logical, save :: debug, newpos, rate_ok, first
+    logical, save :: newpos, rate_ok, first
 
     data &
          first /.true./, &
-         debug /.false./, &
          eff_lim /0.4d0/
 
     flag = 0
@@ -161,6 +165,10 @@ contains
 100    continue
 ! Determine overall faintest 'x' magnitude for all surveys
        mag_faint = 0.d0
+       if (debug) then
+          write (verbose, *) 'Number of surveys: ', n_sur
+          write (verbose, *) 'Survey', ' Survey Limit ', ' Faintest Limit'
+       end if
        do i_sur = 1, n_sur
 ! sur_mmag(i_sur) in survey's filter
 ! mag_max in 'x' filter
@@ -232,9 +240,12 @@ contains
              end if
              if (debug) then
                 write (verbose, *) 'Survey: ', i_sur
+                write (verbose, *) 'Target x/y/z location, epoch of elements, epoch of observation'
                 write (verbose, *) pos%x, pos%y, pos%z, jday, jday_o
+                write (verbose, *) 'Observer Location at observation'
                 write (verbose, *) obspos(1)%pos%x, obspos(1)%pos%y, &
                      obspos(1)%pos%z, obspos(1)%jday
+                write (verbose, *) 'Observer Location at 2h later'
                 write (verbose, *) obspos(2)%pos%x, obspos(2)%pos%y, &
                      obspos(2)%pos%z, obspos(2)%jday
              end if
@@ -276,8 +287,10 @@ contains
                    write (screen, *) 'ierr = ', ierr
                    return
                 end if
+                write (verbose, *) 'Object M, peri, node, ra, dec: '
                 write (verbose, '(3(f8.3, 1x), a13, 1x, a13)') &
                      o_m%m/drad, o_m%peri/drad, o_m%node/drad, stra, stdec
+                write (verbose, *) 'Object ra(deg), dec(deg), mag and mag_max'
                 write (verbose, *) ra_l/drad, dec_l/drad, m_int_l, mag_max
              end if
 
@@ -336,11 +349,14 @@ contains
                            (dabs(rc%angle - angle) .le. rc%hwidth)
                       if (debug) then
                          write (verbose, *) 'Check for rate.'
+                         write (verbose, *) 'object rate, survey rate, min, max'
                          write (verbose, *) rate/drad*3600.d0/24.d0, &
                               rc%min/drad*3600.d0/24.d0, &
                               rc%max/drad*3600.d0/24.d0
+                         write (verbose, *) 'object angle, survey angle, centre, width'
                          write (verbose, *) angle/drad, rc%angle/drad, &
                               rc%hwidth/drad
+                         write (verbose, *) 'object x/y/z position'
                          write (verbose, *) pos2%x, pos2%y, pos2%z
                       end if
                       if (rate_ok) then
@@ -351,7 +367,7 @@ contains
                          random = ran3(seed)
                          if (debug) then
                             write (verbose, *) 'Rate OK. Check detection.'
-                            write (verbose, *) random, eff_l, maglim
+                            write (verbose, *) random, ' < ', eff_l, ' (detection eff at obj mag: ', maglim, ' )'
                          end if
                          if (random .le. eff_l) then
 ! Compute "measured" magnitude with 1 to 3 averaged values
@@ -381,7 +397,7 @@ contains
                                  1.d0 + (m_rand_l - track_mag)*track_slope)
                             if (debug) then
                                write (verbose, *) &
-                                    'Checking for track. ', random, track
+                                    'Checking for track if object was tracked: ', random, track
                             end if
                             if (random .le. track) then
                                flag_l = 2
@@ -389,7 +405,7 @@ contains
 ! Decide if characterized or not
                             if (debug) then
                                write (verbose, *) &
-                                    'Checking for characterization. ', &
+                                    'Checking for characterization limits: ', &
                                     m_rand_l, maglim, eff_l, eff_lim
                             end if
                             if (maglim .gt. 0.d0) then
@@ -420,9 +436,9 @@ contains
                                   return
                                end if
                                if (debug) then
-                                  write (verbose, *) 'All is good, h_rand.'
-                                  write (verbose, *) r, delta
-                                  write (verbose, *) m_rand, alpha, h_rand
+                                  write (verbose, *) 'Computed magnitudes for observing circumstance.'
+                                  write (verbose, *) 'r', r, 'delta', delta, &
+                                          'm_rand', m_rand, 'alpha', alpha, 'h_rand', h_rand
                                end if
                                flag = flag_l
                                ra = ra_l
@@ -436,32 +452,44 @@ contains
 ! We got it, and we know if it was tracked and/or characterized.
 ! Return if tracked and characterized, otherwise keep looping.
                             if (flag .ge. 4) return
-                         else
-!                            write (6, *) 'Low efficiency: ', a, eff_l, &
-!                                 random, m_int_l, rate
+!                         else
+!                            if (debug) then
+!                               write (6, *) 'Low efficiency: ', o_m%a, eff_l, &
+!                                    random, m_int_l, rate
+!                            end if
                          end if
-                      else
-!                         write (6, *) 'Rate out of range: ', a, r_min, &
-!                              r_max, rate, ang_w, dabs(ang - angle)
+!                      else
+!                         if (debug) then
+!                            write (6, *) 'Rate out of range: ', o_m%a, r_min, &
+!                                 r_max, rate, ang_w, dabs(ang - angle)
+!                         end if
                       end if
-                   else
-!                      write (6, *) 'Falling in chip gaps: ', a, ff, random
+!                   else
+!                      if (debug) then
+!                         write (6, *) 'Falling in chip gaps: ', o_m%a, ff, random
+!                      end if
                    end if
                 end if
-             else
-!                write (6, *) 'Too faint for this survey: ', a, i_sur, &
-!                     sur_mmag(i_sur), m_int_l, hx, filt_i, color(filt_i)
+!             else
+!                if (debug) then
+!                   write (6, *) 'Too faint for this survey: ', o_m%a, i_sur, &
+!                        sur_mmag(i_sur), m_int_l, hx, filt_i, color(filt_i)
+!                end if
              end if
-          else
-!             write (6, *) 'Too faint (peri) for this survey: ', a, &
-!                  i_sur, mag_max, mag_peri, hx, filt_i, color(filt_i)
+!          else
+!             if (debug) then
+!                write (6, *) 'Too faint (peri) for this survey: ', o_m%a, &
+!                     i_sur, mag_max, mag_peri, hx, filt_i, color(filt_i)
+!             end if
           end if
 
 ! End loop on surveys
        end do
     else
-!       write (6, *) 'Too faint (peri) for all surveys: ', a, &
-!            mag_faint, mag_peri, hx, filt_i, color(filt_i)
+       if (debug) then
+          write (6, *) 'Too faint (peri) for all surveys: ', o_m%a, &
+               mag_faint, mag_peri, hx, filt_i, color(filt_i)
+       end if
     end if
 
     return

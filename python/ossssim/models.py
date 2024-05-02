@@ -140,6 +140,10 @@ class ModelFileOld(ModelFile):
         return self._model_band
 
     @property
+    def model_band_pass(self) -> str:
+        return self.model_band
+
+    @property
     def colnames(self):
         """
         Parse the file header (lines that start with #) and return the last header
@@ -620,8 +624,18 @@ class Parametric(OSSSSimFile):
         """
         super().__init__(filename=None)
         # initialize the internal variables so they are empty.
-        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'j', 'k', 'phi', 'resamp']
-        self.j_distribution = self.k_distribution = [0,]*size
+        size = kwargs.get('size', size)
+        seed = kwargs.get('seed', seed)
+        epoch = kwargs.get('epoch', epoch)
+        component = kwargs.get('component', component)
+        longitude_neptune = kwargs.get('longitude_neptune', longitude_neptune)
+        H_min = kwargs.get('H_min', H_min)
+        H_max = kwargs.get('H_max', H_max)
+        model_band = kwargs.get('model_band', model_band)
+        colors = kwargs.get('colors', colors)
+        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'phi', 'resamp']
+        self.size = size
+        self.j_distribution = self.k_distribution = [0,]*self.size
         self._sim = self._seed = self._epoch = self._longitude_neptune = None
         if seed is None:
             seed = numpy.random.randint(1, 999999999)
@@ -637,7 +651,6 @@ class Parametric(OSSSSimFile):
                           ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
                           ('Component', component),
                           ('Model_Band', model_band)])
-        self.size = size
         self.comp = component
         self.H_max = H_max
         self.H_min = H_min
@@ -674,6 +687,12 @@ class Parametric(OSSSSimFile):
         if self._inc is None:
             self._inc = self.inc_distribution
         return self._inc
+
+    @property
+    def q(self):
+        if self._q is None:
+            self._q = self.q_distribution
+        return self._q
 
     @property
     def M(self):
@@ -724,7 +743,7 @@ class Parametric(OSSSSimFile):
         Initialize the distributions to trigger generating a new set of model objects
         """
         for element in self.orbital_elements:
-            setattr(    self, f"_{element}", None)
+            setattr(self, f"_{element}", None)
         self._iter = self._targets = self._cartesian = self._sim = None
 
     @abstractmethod
@@ -775,6 +794,10 @@ class Parametric(OSSSSimFile):
     def H_distribution(self) -> Quantity:
         """A distribution of H values"""
         return self.distributions.power_knee_divot(**self.power_knee_divot_params) * units.mag
+
+    @property
+    def q_distribution(self) -> Quantity:
+        return self.a*(1-self.e)
 
     @property
     def comp(self) -> list:
@@ -832,9 +855,9 @@ class Parametric(OSSSSimFile):
             (QTable or dict): set of Quantity objects describing targets.
         """
         rows = {}
-        for element in ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'j', 'k', 'comp',
+        for element in ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'comp',
                         'lc_gb', 'lc_phase', 'lc_period', 'lc_amplitude']:
-            rows[element] = getattr(self,element)
+            rows[element] = getattr(self, element)
 
         pos_zeros = numpy.zeros(self.size)*units.au
         vel_zeros = numpy.zeros(self.size)*units.au/units.yr
@@ -845,7 +868,6 @@ class Parametric(OSSSSimFile):
         for cart in carts:
             rows[cart] = vel_zeros
         table = QTable(self.cartesian(rows=rows))
-        table['q'] = table['a'] * (1 - table['e'])
         return table
 
     @property

@@ -1,10 +1,11 @@
 # this builds a container that can be used to run the SurveySimulator (python and fortran)
 # This container is loaded into the canfar Science Portal for use/execution.
 # Can also be used directly with docker.
-FROM ubuntu:latest as base
+FROM ubuntu:22.04 as base
 USER root
+ENV DEBIAN_FRONTEND="noninteractive"
 RUN apt-get update && yes | unminimize 
-RUN apt-get update && yes | apt-get install wget man man-db manpages-posix git \
+RUN apt-get update && yes | apt-get install wget man man-db git \
     build-essential zip unzip xdg-utils less emacs nano xterm vim rsync tree gfortran
 
 
@@ -23,23 +24,25 @@ RUN chmod +x /skaha/startup.sh
 
 
 # setup a the needed python environment
-RUN apt-get update && yes | apt-get install python3 pip
-RUN pip3 install cadctap
-RUN pip3 install vos
-RUN pip3 install numpy
-RUN pip3 install scipy
-RUN pip3 install 'astropy<6'
-RUN pip3 install --pre astroquery
-RUN pip3 install matplotlib
-RUN pip3 install f90wrap
-RUN pip3 install rebound
-RUN pip3 install jupyter
-RUN pip3 install jupyterlab
+RUN apt-get update && yes | apt-get install python3.11 pip
+# RUN yes | apt install python3.12-venv
+# RUN python3 -m venv /opt/SSim/venv
+RUN pip install cadctap
+RUN pip install vos
+RUN pip install numpy
+RUN pip install scipy
+RUN pip install 'astropy<6'
+RUN pip install --pre astroquery
+RUN pip install matplotlib
+RUN pip install f90wrap
+# RUN pip install git+https://github.com/jameskermode/f90wrap
+RUN pip install rebound
+RUN pip install jupyter
+RUN pip install jupyterlab
 
 # Build the SSim
-RUN mkdir /opt/SSim
-RUN mkdir /opt/SSim/fortran
-COPY fortran/F95 /opt/SSim/fortran/F95
+RUN mkdir -p /opt/SSim/fortran
+COPY fortran /opt/SSim/fortran
 COPY python /opt/SSim/python
 WORKDIR /opt/SSim/fortran/F95
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
@@ -60,7 +63,7 @@ RUN groupadd -g 1001 testuser
 RUN useradd -u 1001 -g 1001 -s /bin/bash -d /arc/home/testuser -m testuser
 RUN chown -R testuser /opt/SSim
 WORKDIR /opt/SSim/python
-RUN pip install -e .
+RUN pip3 install -e .
 USER testuser
 WORKDIR /arc/home/testuser
 COPY etc/ReadModelFromFile.in ./
