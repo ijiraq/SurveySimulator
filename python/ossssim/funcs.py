@@ -234,26 +234,37 @@ def poisson_range(k, prob):
     return numpy.interp(k, lower, mu), numpy.interp(k, upper, mu)
 
 
-def implanted_cfd(H:(numpy.array, float), alpha_elbow=0.15) -> numpy.array:
+def implanted_cfd(H: (numpy.array, float), alpha_dwarf: float = 0.13,
+                  H_dwarf: float = 3.2,
+                  alpha_trans: float = 0.6,
+                  H_trans: float = 6.0, H_elbow:float = 16.5, alpha_elbow=0.15) -> numpy.array:
     """
     Describes the cumulative size frequency distribution taken from Kavelaars et al. (2021) and Petit et al. (2023)
     and Petit et al. (in prep)
+    LF is a power law from -3 to H_dwarf, with slope alpha_dwarf then a powerlaw from H_dwarf to H_trans with a slope of
+    H_trans and then  a tapered power law from H_trans to H_elbow (following parameters from Kavelaars et al. 2021) and
+    then a power law with slope alpha_elbow from H_elbow to the end of the distribution.
+
+    This is a cumulative distribution function, not a differential. The differential is the derivative of this function.
+
+    :param H: numpy array of H magnitudes
+    :param alpha_dwarf: slope of the power law for the dwarf planet region.
+    :param H_dwarf: break point between the dwarf planet and transition region.
+    :param alpha_trans: slope of the power law for the transition region.
+    :param H_trans: break point between the transition region and the tapered region.
+    :param alpha_elbow: slope of the power law for the small object region.
+    :param H_elbow: break point between the tapered region and the small object power law region.
     """
     # Make sure H can be treated as an order numpy array.
     N = H * 0.0
-
     H_norm = -3.0  # Normalization of the SFD
     # limit where we are considering dwarf planets. (Petit et al.)
-    H_dwarf = 3.2
-    alpha_dwarf = 0.16
     cond_dwarf = H < H_dwarf
     # transition region between dwarf and tapered SFD (Petit et al.)
-    H_trans = 6.5
-    alpha_trans = 0.6
     cond_trans = (~cond_dwarf) & (H < H_trans)
-    # break at the 'elbow' (Singer et al.)
-    H_elbow = 16.5
+    # tapered region (Petit et al.)
     cond_taper = (~cond_dwarf) & (~cond_trans) & (H < H_elbow)
+    # break at the 'elbow' (Singer et al.)
     cond_elbow = (~cond_dwarf) & (~cond_trans) & (~cond_taper)
 
     N0 = 1
