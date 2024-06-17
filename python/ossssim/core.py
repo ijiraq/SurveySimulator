@@ -115,7 +115,7 @@ class OSSSSim:
         self.characterization_directory = characterization_directory
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
 
-    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False):
+    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
         """
         Pass the target elements to detos1 and determine if this target would be detected.
 
@@ -135,7 +135,9 @@ class OSSSSim:
 
         the result row has, in addition to above, the following items:
 
-        flag: 0 - not detected, 1 - detected, 2 - tracked
+        flag: 0 - not detected, 1 - detected, 2 - tracked, 3 - characterized and lost, 4 - tacked and characterised
+
+        When comparing to a detected sample you likely want to only use those with flag == 4
 
         following are values at time of detection, None if not detected
 
