@@ -569,7 +569,7 @@ contains
     character(*), intent(IN) :: code_in, dirn
     integer, intent(OUT) :: code_out
   
-    character(len=30) :: fmt, fname
+    character(len=300) :: fmt, fname
     integer :: ierr, j
     integer :: vector_file_lun
 
