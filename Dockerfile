@@ -54,6 +54,7 @@ RUN pip3 install astroplan
 FROM base as deploy
 WORKDIR /opt/SSim/python
 RUN pip install .
+# RUN apt-get update && yes | apt-get install curl
 
 # Two build sets, deploy and test
 FROM base as test
