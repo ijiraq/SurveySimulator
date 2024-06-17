@@ -306,7 +306,7 @@ class Distributions:
         Petit et al. 2022
         """
         fp = numpy.linspace(h_min, h_max, num=1000)
-        xp = funcs.implanted_cfd(fp)
+        xp = funcs.implanted_pdf(fp, H_dwarf=2.5, H_trans=5.8, alpha_trans=0.7, H_elbow=15.5)
         # Merge them and then accumulate and normalize
         cdf = xp.cumsum()
         xp = cdf / cdf[-1]

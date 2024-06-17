@@ -80,6 +80,18 @@ def variably_tapered2(h, Ho, Hb, alpha_SI, beta_SI):
     return 10.**(alpha_SI*3./5.*(h-Ho))*numpy.exp(-10.**(-beta_SI*3./5*(h-Hb)))
 
 
+def variably_tapered2_diff(h, Ho=K_Ho, Hb=K_Hb, alpha_SI=K_ALPHA_SI, beta_SI=K_BETA_SI):
+    """
+    The derivative of the version 2 of the variably tapered function .
+
+    """
+    part1 = numpy.exp(-numpy.float_power(10, -0.6 * beta_SI * (h - Hb)))
+    part1 *= beta_SI * 1.38155 * numpy.float_power(10, 0.6 * alpha_SI * (h - Ho) - 0.6 * beta_SI * (h - Hb))
+    part2 = alpha_SI * 1.38155 * numpy.float_power(10, 0.6 * alpha_SI * (h - Ho))
+    part2 *= numpy.exp(-numpy.float_power(10, -0.6 * beta_SI * (h - Hb)))
+    return part1+part2
+
+
 def variably_tapered_diff(h, Dp, E, alpha_SI, beta_SI):
     """
     Differential form of the variably_tapere
@@ -234,10 +246,58 @@ def poisson_range(k, prob):
     return numpy.interp(k, lower, mu), numpy.interp(k, upper, mu)
 
 
-def implanted_cfd(H: (numpy.array, float), alpha_dwarf: float = 0.13,
+def implanted_pdf(H: (numpy.array, float), alpha_dwarf: float = 0.13,
                   H_dwarf: float = 3.2,
                   alpha_trans: float = 0.6,
                   H_trans: float = 6.0, H_elbow:float = 16.5, alpha_elbow=0.15) -> numpy.array:
+    """
+    Describes the differential size frequency distribution taken from Kavelaars et al. (2021) and Petit et al. (2023)
+    and Petit et al. (in prep)
+    LF is a power law from -3 to H_dwarf, with slope alpha_dwarf then a powerlaw from H_dwarf
+    H_trans and then  a tapered power law from H_trans to H_elbow (following parameters from Kavelaars et al. 2021) and
+    then a power law with slope alpha_elbow from H_elbow to the end of the distribution.
+
+    This is a cumulative distribution function, not a differential. The differential is the derivative of this function.
+
+    :param H: numpy array of H magnitudes
+    :param alpha_dwarf: slope of the power law for the dwarf planet region.
+    :param H_dwarf: break point between the dwarf planet and transition region.
+    :param alpha_trans: slope of the power law for the transition region.
+    :param H_trans: break point between the transition region and the tapered region.
+    :param alpha_elbow: slope of the power law for the small object region.
+    :param H_elbow: break point between the tapered region and the small object power law region.
+    """
+    # Make sure H can be treated as an order numpy array.
+    dN = H * 0.0
+    H_norm = -3.0  # Normalization of the SFD
+    # limit where we are considering dwarf planets. (Petit et al.)
+    cond_dwarf = H < H_dwarf
+    # transition region between dwarf and tapered SFD (Petit et al.)
+    cond_trans = (~cond_dwarf) & (H < H_trans)
+    # tapered region (Petit et al.)
+    cond_taper = (~cond_dwarf) & (~cond_trans) & (H < H_elbow)
+    # break at the 'elbow' (Singer et al.)
+    cond_elbow = (~cond_dwarf) & (~cond_trans) & (~cond_taper)
+
+    dN0 = 1*(H[1]-H[0])
+    # d/dH(N×10^(a (H - X))) = a N log(10)×10^(a (H - X))
+    dN[cond_dwarf] = dN0*alpha_dwarf*ln10*10**(alpha_dwarf*(H[cond_dwarf] - H_norm))
+    dN0 = dN[cond_dwarf][-1]/(alpha_trans*ln10)
+    # dN0 *= alpha_dwarf*ln10*10**(alpha_dwarf*(H_dwarf - H_norm))
+    dN[cond_trans] = dN0*alpha_trans*ln10*10**(alpha_trans*(H[cond_trans] - H_dwarf))
+    dN0 = dN[cond_trans][-1]/variably_tapered2_diff(H_trans, Hb = K_Hb) # +0.5)
+    # dN0 *= alpha_trans*ln10*10**(alpha_trans*(H_trans - H_dwarf))/variably_tapered2_diff(H_trans)
+    dN[cond_taper] = dN0*variably_tapered2_diff(H[cond_taper], Hb = K_Hb) # +0.5)  #, K_Ho, K_Hb, K_ALPHA_SI, K_BETA_SI)
+    dN0 = dN[cond_taper][-1]/(alpha_elbow*ln10)
+    # dN0 *= variably_tapered2_diff(H_elbow) #, K_Ho, K_Hb, K_ALPHA_SI, K_BETA_SI)
+    dN[cond_elbow] = dN0 * alpha_elbow*ln10*10**(alpha_elbow*(H[cond_elbow]-H_elbow))
+    return dN
+
+
+def implanted_cfd(H: (numpy.array, float), alpha_dwarf: float = 0.13,
+                  H_dwarf: float = 3.2,
+                  alpha_trans: float = 0.6,
+                  H_trans: float = 6.2, H_elbow:float = 16.5, alpha_elbow=0.15) -> numpy.array:
     """
     Describes the cumulative size frequency distribution taken from Kavelaars et al. (2021) and Petit et al. (2023)
     and Petit et al. (in prep)
@@ -279,22 +339,38 @@ def implanted_cfd(H: (numpy.array, float), alpha_dwarf: float = 0.13,
     return N
 
 
-def cold_cfd(H:numpy.array) -> numpy.array:
-    N = variably_tapered2(H, K_Ho, K_Hb, K_ALPHA_SI, K_BETA_SI)
+def cold_cfd(H:numpy.array, Hb=K_Hb) -> numpy.array:
+    N = variably_tapered2(H, K_Ho, Hb, K_ALPHA_SI, K_BETA_SI)
     return N
 
 
-if __name__ == '__main__':
+def main():
     logging.info("This is the result from the OSSOS SFD papers.")
     from matplotlib import pyplot as plt
     Ho = -2.6
-    Hb = 8.1 
+    Hb = 8.1
     beta_SI = 0.42
     alpha_SI = 0.677
-    x = numpy.arange(4.5, 17, 0.1)
-    cdf = variably_tapered2(x, Ho, Hb, alpha_SI, beta_SI)
-    plt.plot(x, cdf)
+    x = numpy.arange(-10, 20, 0.01)
+    # cdf = variably_tapered2(x, Ho, Hb, alpha_SI, beta_SI)
+    # pdf = variably_tapered2_diff(x, Ho, Hb, alpha_SI, beta_SI)
+    cdf = implanted_cfd(x)
+    pdf = implanted_pdf(x, H_dwarf=2.5, H_trans=5.8, alpha_trans=0.7, H_elbow=15.5)  # , H_dwarf=2)
+    cold = 2.2*cold_cfd(x)
+    napier = 6500*variably_tapered2(x, 2.22, 10.62, 0.26/0.6, 0.19/0.6)
+    plt.plot(x, cold, label="K21")
+    plt.plot(x, cdf, label="Hot; P23")
+    # plt.plot(x, pdf)
+    plt.plot(x, napier, label="N24")
+    plt.plot(x, pdf.cumsum(), label="Hot; smooth dN")
     plt.xlabel('H (r)')
     plt.ylabel('N(H<r)')
+    plt.ylim(0.1,1E7)
+    plt.xlim(-1, 11)
     plt.yscale('log')
+    plt.grid(True, which="both", ls="-")
+    plt.legend()
     plt.savefig('SFD.pdf')
+
+if __name__ == '__main__':
+    main()
