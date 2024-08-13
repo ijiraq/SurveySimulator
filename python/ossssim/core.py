@@ -2,7 +2,7 @@
 The OSSOS Survey Simulator module.  This is front-end for the OSSSim.  The primary OSSSim is writen in f95.
 The OSSOS Survey Simulator module.  This is front-end for the OSSSim.  The primary OSSSim is writen in f95.
 """
-import random
+import logging
 from astropy import units as u
 from astropy.units import Quantity
 from astropy.table import Row
@@ -10,7 +10,6 @@ from astropy.time import Time
 
 from .color import PhotSpec
 from .lib import SurveySubsF95
-from . import definitions
 import rebound
 import os
 import numpy
@@ -103,7 +102,7 @@ class OSSSSim:
     This class simulates the process of observing a model of the solar system using a set of characterized observations.
     """
 
-    def __init__(self, characterization_directory):
+    def __init__(self, characterization_directory, seed=None):
         """
         Args:
             characterization_directory (str): the path to survey characterization to be used.
@@ -114,8 +113,9 @@ class OSSSSim:
 
         self.characterization_directory = characterization_directory
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
+        self.seed = seed is None and 0 or seed
 
-    def simulate(self, row, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
+    def simulate(self, row: dict, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
         """
         Pass the target elements to detos1 and determine if this target would be detected.
 
@@ -124,7 +124,7 @@ class OSSSSim:
             colors (PhotSpec): colors of the target index by 'g-x' etc, see below.
             model_band (str): a single letter designator of the bandpass that the H values are provided in.
             seed (int): a seed to pass to the fortran code to allow reproducible simulations
-            epoch (Quantity or float): JD of elements, can also be provided for each row sent to simulate
+            epoch (Quantity or float or Time): JD of elements, can also be provided for each row sent to simulate
             debug (bool): if True, have Fortran detos routine create a log of detection process.
 
         Returns:
@@ -172,9 +172,8 @@ class OSSSSim:
         ossssim.definitions.LIGHT_CURVE_PARAMS
         """
 
-        # if no seed is provide generate a 'random' one... this is the seed passed to the fortran code.
-        if seed is None:
-            seed = random.randint(0, 123456789)
+        if seed is not None:
+            logging.warning('seed is now set in the constructor. ignored here')
 
         # pack the orbit into a t_orb_m object to pass to fortran module.
         o_m = SurveySubsF95.datadec.t_orb_m()
@@ -217,9 +216,8 @@ class OSSSSim:
                                            period,
                                            amplitude,
                                            self.characterization_directory,
-                                           seed,
+                                           self.seed,
                                            debug)
-
         if ierr != 0:
             raise IOError(f"SSim failed with error code: {ierr}")
         row['j'] = row.get('j', 0)
