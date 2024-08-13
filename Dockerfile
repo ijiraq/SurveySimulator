@@ -39,6 +39,8 @@ RUN pip install f90wrap
 RUN pip install rebound
 RUN pip install jupyter
 RUN pip install jupyterlab
+RUN pip3 install astroplan
+RUN pip install Deprecated
 
 # Build the SSim
 RUN mkdir -p /opt/SSim/fortran
@@ -47,7 +49,6 @@ COPY python /opt/SSim/python
 WORKDIR /opt/SSim/fortran/F95
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
-RUN pip3 install astroplan
 # RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections 
 # RUN apt-get install -y ttf-mscorefonts-installer
 
