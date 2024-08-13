@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Iterable
 import numpy
-import rebound
 from astropy import units
 from astropy.table import QTable, Table
 from astropy.time import Time
@@ -48,7 +47,155 @@ def get_floats_in_str(line):
     return result
 
 
-class ModelFile(Iterable):
+class OSSSSimFile(ABC):
+    """
+    Base class for OSSSSim Parametric model and external model input files
+    """
+    def __init__(self, filename):
+        self.filename = filename
+        self._table = None
+        self._last_row_written = 0
+        self._colors = self._longitude_neptune = None
+        self.mask_these_if_not_detected = copy.copy(definitions.observables)
+
+    @property
+    @abstractmethod
+    def table(self) -> QTable:
+        """
+        Table of orbital elements and measurements of circumstance of observation (if observed)
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def column_names(self) -> list[str]:
+        """
+        return a list of column names to be written or read from file.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def header(self) -> dict:
+        """
+        Provide a header dictionary with circumstances of the model.
+        Should include epoch, seed, longitude_neptune, colors, and component.
+        """
+        pass
+
+    @property
+    def epoch(self) -> Time:
+        """
+        Epoch of coordinates of orbit read from model file header.
+        """
+        if not isinstance(self.header['Epoch'], Time):
+            self.header['Epoch'] = Time(self.header['Epoch'], format='jd')
+        return self.header['Epoch']
+
+    @epoch.setter
+    def epoch(self, value: Time) -> None:
+        self.header['Epoch'] = value
+
+    @property
+    def seed(self) -> int:
+        """
+        Seed of the model read from the model file header.
+        """
+        return int(self.header['Seed'])
+
+    @seed.setter
+    def seed(self, value) -> None:
+        self.header['Seed'] = value
+
+    @property
+    def longitude_neptune(self) -> Quantity:
+        """
+        Longitude of Neptune at epoch
+        """
+        value = self.header['Longitude_Neptune']
+        if not isinstance(value, Quantity):
+            value *= units.rad
+        return value
+
+    @property
+    def colors(self) -> PhotSpec:
+        """Returns color array from file header or default if no color array in header."""
+        return PhotSpec(self.header['Colors'])
+
+    @colors.setter
+    def colors(self, value):
+        self.header['Colors'] = value
+
+    @property
+    def model_band(self) -> str:
+        return self.header['Model_Band']
+
+    @model_band.setter
+    def model_band(self, value):
+        self.header['Model_Band'] = value
+
+    def write_row(self, row):
+        """
+        Append a row to the file.
+        """
+        self.append(row)
+        self.write(self.filename, append=True)
+
+    def append(self, this_row) -> None:
+        """
+        Given a dictionary of row values append the row to the current table
+
+        :param this_row: Dictionary of values to write to row.
+        """
+        mask = []
+        _table_row = []
+        for column_name in self.column_names:
+            if column_name not in this_row:
+                raise ValueError(f"Column name {column_name} not found in {this_row}.")
+            masked = (this_row.get('flag', 0) < 1) & (column_name in self.mask_these_if_not_detected)
+            mask.append(masked)
+            value = this_row[column_name]
+            _table_row.append(value)
+        self.table.add_row(_table_row, mask=mask)
+
+    def write(self, filename, append=True,
+              column_delimiter=TABLE_COLUMN_DELIMITER,
+              table_format=APPEND_TABLE_FORMAT):
+        """
+        Write the table to a file.
+        """
+        file_already_exists = os.access(filename, os.F_OK)
+        if file_already_exists and not append:
+            raise IOError(f"File {filename} already exists and not writing in append mode.")
+        if not file_already_exists:
+            self._last_row_written = 0
+            table_format = INITIAL_TABLE_FORMAT
+        column_formats = dict([(column_name,
+                                definitions.column_format.get(column_name, definitions.column_format['default']))
+                               for column_name in self.column_names])
+        with open(self.filename, 'a') as f_obj:
+            self.table[self._last_row_written:].write(f_obj,
+                                                      delimiter=column_delimiter,
+                                                      # meta=self.table.meta,
+                                                      format=table_format,
+                                                      overwrite=False,
+                                                      formats=column_formats)
+        self._last_row_written = len(self.table)
+
+    def write_footer(self, n_iter, n_hits, n_track):
+        """
+        Write a footer with the results of the survey simulation
+
+        This is done as a footer instead of header to allow streaming output.
+        """
+        with open(self.filename, 'a') as f_detect:
+            f_detect.write(f'# Total number of objects:   {n_iter:>11d}\n')
+            f_detect.write(f'# Number of detections:      {n_hits:>11d}\n')
+            f_detect.write(f'# Number of tracked objects: {n_track:>11d}\n')
+
+
+class ModelFile(Iterable, ABC):
+    """This is an abstract class that selects which type of model file object is needed to read a given input file."""
 
     def __new__(cls, filename, randomize=False):
         with open(filename, 'r') as f_obj:
@@ -57,9 +204,6 @@ class ModelFile(Iterable):
             else:
                 cls = ModelFileOld
         return super().__new__(cls)
-
-    def close(self):
-        self._f_obj.close()
 
 
 class ModelFileOld(ModelFile):
@@ -78,9 +222,7 @@ class ModelFileOld(ModelFile):
         self._colnames = None
         self._colors = None
         self._model_band = None
-        self._epoch = None
         self._longitude_neptune = None
-        self._seed = None
         self.header_lines = []
         self._f_obj = open(self.filename, 'r')
         self.f_loc = 0
@@ -95,16 +237,19 @@ class ModelFileOld(ModelFile):
         """
         Epoch of coordinates of orbit read from model file header.
         """
-        if self._epoch is None:
-            self._epoch = Time(float(self.header['JD'][0].replace('d', 'e')),
-                               format='jd')
-        return self._epoch
+        return Time(float(self.header['JD'][0].replace('d', 'e')), format='jd')
+
+    @epoch.setter
+    def epoch(self, value: Time):
+        self.header['JD'] = [value.jd]
 
     @property
     def seed(self):
-        if self._seed is None:
-            self._seed = int(self.header['Seed'][0])
-        return self._seed
+        return int(self.header.get('Seed', [123456789, ])[0])
+
+    @seed.setter
+    def seed(self, value):
+        self.header['Seed'] = [value]
 
     @property
     def longitude_neptune(self):
@@ -112,7 +257,9 @@ class ModelFileOld(ModelFile):
         Longitude of Neptune at epoch
         """
         if self._longitude_neptune is None:
-            self._longitude_neptune = float(self.header['lambdaN'][0].replace('d', 'e')) * units.radian
+            default_longitude = definitions.Neptune['Longitude'].to('radian').value
+            self._longitude_neptune = float(self.header.get('lambdaN', [default_longitude,])[0]
+                                            .replace('d', 'e')) * units.radian
         return self._longitude_neptune
 
     @staticmethod
@@ -284,246 +431,6 @@ class ModelFileOld(ModelFile):
         return self._targets
 
 
-class OSSSSimFile(ABC):
-    """
-    Base class for OSSSSim Parametric model and external model input files
-    """
-    def __init__(self, filename):
-        self.filename = filename
-        self._table = None
-        self._last_row_written = 0
-        self._seed = self._epoch = self._colors = self._longitude_neptune = self._seed = None
-        self.mask_these_if_not_detected = copy.copy(definitions.observables)
-
-    @property
-    @abstractmethod
-    def table(self) -> QTable:
-        """
-        Table of orbital elements and measurements of circumstance of observation (if observed)
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def column_names(self) -> list[str]:
-        """
-        return a list of column names to be written or read from file.
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def header(self) -> dict:
-        """
-        Provide a header dictionary with circumstances of the model.
-        Should include epoch, seed, longitude_neptune, colors, and component.
-        """
-        pass
-
-    @property
-    def epoch(self) -> Time:
-        """
-        Epoch of coordinates of orbit read from model file header.
-        """
-        if self._epoch is not None:
-            return self._epoch
-
-        self._epoch = self.header['Epoch']
-        if not isinstance(self._epoch, Time):
-            self._epoch = Time(self._epoch, format='jd')
-
-        return self._epoch
-
-    @property
-    def seed(self) -> int:
-        """
-        Seed of the model read from the model file header.
-        """
-        return int(self.header['Seed'])
-
-    @property
-    def longitude_neptune(self) -> Quantity:
-        """
-        Longitude of Neptune at epoch
-        """
-        value = self.header['Longitude_Neptune']
-        if not isinstance(value, Quantity):
-            value *= units.rad
-        return value
-
-    @property
-    def colors(self) -> PhotSpec:
-        """Returns color array from file header or default if no color array in header."""
-        return PhotSpec(self.header['Colors'])
-
-    @colors.setter
-    def colors(self, value):
-        self.header['Colors'] = value
-
-    @property
-    def model_band(self) -> str:
-        return self.header['Model_Band']
-
-    @model_band.setter
-    def model_band(self, value):
-        self.header['Model_Band'] = value
-
-    def write_row(self, row):
-        """
-        Append a row to the file.
-        """
-        self.append(row)
-        self.write(self.filename, append=True)
-
-    def append(self, this_row) -> None:
-        """
-        Given a dictionary of row values append the row to the current table
-
-        :param this_row: Dictionary of values to write to row.
-        """
-        mask = []
-        _table_row = []
-        for column_name in self.column_names:
-            if column_name not in this_row:
-                raise ValueError(f"Column name {column_name} not found in {this_row}.")
-            masked = (this_row.get('flag', 0) < 1) & (column_name in self.mask_these_if_not_detected)
-            mask.append(masked)
-            # has_unit = hasattr(this_row[column_name], 'unit') and this_row[column_name].unit is not None
-            value = this_row[column_name]
-            # print(value, this_row[column_name], has_unit, column_name, definitions.column_unit.get(column_name, this_row[column_name].unit))
-            # if has_unit:
-            #    value = value.to(definitions.column_unit.get(column_name, this_row[column_name].unit))
-            _table_row.append(value)
-        self.table.add_row(_table_row, mask=mask)
-
-    def write(self, filename, append=True,
-              column_delimiter=TABLE_COLUMN_DELIMITER,
-              table_format=APPEND_TABLE_FORMAT):
-        """
-        Write the table to a file.
-        """
-        file_already_exists = os.access(filename, os.F_OK)
-        if file_already_exists and not append:
-            raise IOError(f"File {filename} already exists and not writing in append mode.")
-        if not file_already_exists:
-            self._last_row_written = 0
-            table_format = INITIAL_TABLE_FORMAT
-        column_formats = dict([(column_name,
-                                definitions.column_format.get(column_name, definitions.column_format['default']))
-                               for column_name in self.column_names])
-        with open(self.filename, 'a') as f_obj:
-            self.table[self._last_row_written:].write(f_obj,
-                                                      delimiter=column_delimiter,
-                                                      # meta=self.table.meta,
-                                                      format=table_format,
-                                                      overwrite=False,
-                                                      formats=column_formats)
-        self._last_row_written = len(self.table)
-
-    def write_footer(self, n_iter, n_hits, n_track):
-        """
-        Write a footer with the results of the survey simulation
-
-        This is done as a footer instead of header to allow streaming output.
-        """
-        with open(self.filename, 'a') as f_detect:
-            f_detect.write(f'# Total number of objects:   {n_iter:>11d}\n')
-            f_detect.write(f'# Number of detections:      {n_hits:>11d}\n')
-            f_detect.write(f'# Number of tracked objects: {n_track:>11d}\n')
-
-
-class ResultsFile(OSSSSimFile):
-    """
-    ModelFile structure for output file from Simulator detections.
-    """
-
-    @property
-    def column_names(self) -> list[str]:
-        return self.table.colnames
-
-    @property
-    def header(self) -> dict:
-        return self.table.meta
-
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H',
-                'q', 'r', 'm_rand', 'H_rand', 'x', 'y', 'z',
-                'band', 'comp', 'j', 'k']
-
-    def __init__(self, filename, seed=None, epoch=definitions.Neptune['Epoch'],
-                 longitude_neptune=definitions.Neptune['Longitude'], colors=PhotSpec(),
-                 model_band=definitions.DEFAULT_MODEL_BAND, randomize=False):
-        super().__init__(filename)
-        self.meta = dict([('Seed', seed),
-                          ('Epoch', epoch),
-                          ('Longitude_Neptune', longitude_neptune),
-                          ('Colors', colors.colors),
-                          ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
-                          ('Model_Band', model_band)])
-
-        self.filename = filename
-        self._table = None
-
-    @property
-    def table(self) -> QTable:
-        if self._table is not None:
-            return self._table
-        dtypes = []
-        column_units = []
-        description = {}
-        for column_name in self.colnames:
-            dtypes.append(definitions.column_dtype.get(column_name,
-                                                       definitions.column_dtype['default']))
-            column_units.append(definitions.column_unit.get(column_name, units.dimensionless_unscaled))
-            description[column_name] = definitions.column_description.get(column_name, None)
-        self._table = QTable(names=self.colnames,
-                             masked=True,
-                             units=column_units,
-                             dtype=dtypes,
-                             meta=self.meta,
-                             descriptions=description)
-        return self._table
-
-
-class ModelOutputFile(ResultsFile):
-    """
-    Output format used to store the input model, used when model is parametric,
-    and you want to keep a record of input for diagnostics
-    """
-
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
-                'comp', 'j', 'k', 'x', 'y', 'z']
-
-    def __init__(self, **args):
-        super().__init__(**args)
-        for element in ['x', 'y', 'z']:
-            self.mask_these_if_not_detected.remove(element)
-
-
-class DetectFile(ResultsFile):
-    """
-    Detected object output file structure.
-    """
-    colnames = ['a', 'e', 'q', 'inc', 'j', 'k', 'node', 'peri', 'M', 'H',  'band', 'color', 'comp',
-                'flag', 'Survey', 'eff',
-                'm_int', 'm_rand', 'h_rand', 'Mt',
-                'RA', 'DEC', 'r', 'delta', 'x', 'y', 'z']
-
-
-class FakeFile(ResultsFile):
-    """
-    List of positions of artificial objects to add to the file.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'mag', 'dra', 'ddec', 'RA', 'DEC']
-
-
-class TrackFile(ResultsFile):
-    """
-    Tracked object output file structure.
-    """
-    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r',
-                'Mt', 'm_rand', 'H_rand', 'band', 'Survey', 'comp', 'j', 'k']
-
-
 class ModelFileEcsv(ModelFile, OSSSSimFile):
     """
     A class to drive the SSim using a standard model file.
@@ -545,7 +452,6 @@ class ModelFileEcsv(ModelFile, OSSSSimFile):
         self._colors = None
         self._epoch = None
         self._longitude_neptune = None
-        self._seed = None
         self.header_lines = []
         self._f_obj = open(self.filename, 'r')
         self.f_loc = 0
@@ -593,6 +499,100 @@ class ModelFileEcsv(ModelFile, OSSSSimFile):
         return self.table
 
 
+
+class ResultsFile(OSSSSimFile):
+    """
+    ModelFile structure for output file from Simulator detections.
+    """
+
+    @property
+    def column_names(self) -> list[str]:
+        return self.table.colnames
+
+    @property
+    def header(self) -> dict:
+        return self.table.meta
+
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H',
+                'q', 'r', 'm_rand', 'H_rand', 'x', 'y', 'z',
+                'band', 'comp', 'j', 'k']
+
+    def __init__(self, filename: str, seed: int = None, epoch: Time = definitions.Neptune['Epoch'],
+                 longitude_neptune: Quantity = definitions.Neptune['Longitude'], colors: PhotSpec = PhotSpec(),
+                 model_band: str = definitions.DEFAULT_MODEL_BAND, randomize=False):
+        super().__init__(filename)
+        self.meta = dict([('Seed', seed),
+                          ('Epoch', epoch),
+                          ('Longitude_Neptune', longitude_neptune),
+                          ('Colors', colors.colors),
+                          ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
+                          ('Model_Band', model_band)])
+        if not randomize:
+            logging.warning('Randomization of reading of files is not supported.')
+        self.filename = filename
+        self._table = None
+
+    @property
+    def table(self) -> QTable:
+        if self._table is not None:
+            return self._table
+        dtypes = []
+        column_units = []
+        description = {}
+        for column_name in self.colnames:
+            dtypes.append(definitions.column_dtype.get(column_name,
+                                                       definitions.column_dtype['default']))
+            column_units.append(definitions.column_unit.get(column_name, units.dimensionless_unscaled))
+            description[column_name] = definitions.column_description.get(column_name, None)
+        self._table = QTable(names=self.colnames,
+                             masked=True,
+                             units=column_units,
+                             dtype=dtypes,
+                             meta=self.meta,
+                             descriptions=description)
+        return self._table
+
+
+class ModelOutputFile(ResultsFile):
+    """
+    Output format used to store the input model, used when model is parametric,
+    and you want to keep a record of input for diagnostics
+    """
+
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q',
+                'comp', 'j', 'k', 'x', 'y', 'z']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for element in ['x', 'y', 'z']:
+            self.mask_these_if_not_detected.remove(element)
+
+
+class DetectFile(ResultsFile):
+    """
+    Detected object output file structure.
+    """
+    colnames = ['a', 'e', 'q', 'inc', 'j', 'k', 'node', 'peri', 'M', 'H',  'band', 'color', 'comp',
+                'flag', 'Survey', 'eff',
+                'm_int', 'm_rand', 'h_rand', 'Mt',
+                'RA', 'DEC', 'r', 'delta', 'x', 'y', 'z']
+
+
+class FakeFile(ResultsFile):
+    """
+    List of positions of artificial objects to add to the file.
+    """
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'mag', 'dra', 'ddec', 'RA', 'DEC']
+
+
+class TrackFile(ResultsFile):
+    """
+    Tracked object output file structure.
+    """
+    colnames = ['a', 'e', 'inc', 'node', 'peri', 'M', 'H', 'q', 'r',
+                'Mt', 'm_rand', 'H_rand', 'band', 'Survey', 'comp', 'j', 'k']
+
+
 class Parametric(OSSSSimFile):
     """
     This abstract class defines methods needed to build a parametric
@@ -624,8 +624,10 @@ class Parametric(OSSSSimFile):
         """
         super().__init__(filename=None)
         # initialize the internal variables so they are empty.
+        self._sim = self._longitude_neptune = None
         size = kwargs.get('size', size)
         seed = kwargs.get('seed', seed)
+        seed = seed is None and numpy.random.randint(1, 999999999) or seed
         epoch = kwargs.get('epoch', epoch)
         component = kwargs.get('component', component)
         longitude_neptune = kwargs.get('longitude_neptune', longitude_neptune)
@@ -633,17 +635,21 @@ class Parametric(OSSSSimFile):
         H_max = kwargs.get('H_max', H_max)
         model_band = kwargs.get('model_band', model_band)
         colors = kwargs.get('colors', colors)
-        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'phi', 'resamp']
-        self.size = size
-        self.j_distribution = self.k_distribution = [0,]*self.size
-        self._sim = self._seed = self._epoch = self._longitude_neptune = None
-        if seed is None:
-            seed = numpy.random.randint(1, 999999999)
-        if colors is None:
-            colors = PhotSpec()
+        colors = colors is None and PhotSpec() or PhotSpec(colors)
         if 'default' not in colors.colors:
             colors.colors['default'] = PhotSpec.COLORS['default']
+        self.size = size
+        self.j_distribution = self.k_distribution = [0,]*self.size
+        self.comp = component
+        self.H_max = H_max
+        self.H_min = H_min
+        self.model_band = model_band
+        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'phi', 'resamp']
+        for element in self.orbital_elements:
+            setattr(self, f"_{element}", None)
+        self._a = self._e = self._inc = self._node = self._peri = self._M = self._q = self._H = self._j = self._k = None
         component = component.replace(" ", "_")
+        # The meta data is used to retrieve properties of the object and to write the header of the file.
         self.meta = dict([('Seed', seed),
                           ('Epoch', epoch),
                           ('Longitude_Neptune', longitude_neptune),
@@ -651,14 +657,9 @@ class Parametric(OSSSSimFile):
                           ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
                           ('Component', component),
                           ('Model_Band', model_band)])
-        self.comp = component
-        self.H_max = H_max
-        self.H_min = H_min
-        self.model_band = model_band
+        # Note that self.seed value is coming from the OSSSSimFile class, the self.meta declaration setts the header.
         self.distributions = distributions.Distributions(self.seed, self.size)
         self.a_neptune = definitions.Neptune['SemimajorAxis']
-        for element in self.orbital_elements:
-            setattr(self, f"_{element}", None)
         self.rebound_archive = f"Rebound_Archive.bin"
         self.power_knee_divot_params = dict([('alpha_bright', 1.1),
                                              ('alpha_faint', 0.4),
