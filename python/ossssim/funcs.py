@@ -249,7 +249,10 @@ def poisson_range(k, prob):
 def implanted_pdf(H: (numpy.array, float), alpha_dwarf: float = 0.13,
                   H_dwarf: float = 3.2,
                   alpha_trans: float = 0.6,
-                  H_trans: float = 6.0, H_elbow:float = 16.5, alpha_elbow=0.15) -> numpy.array:
+                  H_trans: float = 6.0, 
+                  H_divot: float = 9.0,
+                  contrast: float = 0.7,
+                  H_elbow:float = 16.5, alpha_elbow=0.15) -> numpy.array:
     """
     Describes the differential size frequency distribution taken from Kavelaars et al. (2021) and Petit et al. (2023)
     and Petit et al. (in prep)
@@ -288,6 +291,7 @@ def implanted_pdf(H: (numpy.array, float), alpha_dwarf: float = 0.13,
     dN0 = dN[cond_trans][-1]/variably_tapered2_diff(H_trans, Hb = K_Hb) # +0.5)
     # dN0 *= alpha_trans*ln10*10**(alpha_trans*(H_trans - H_dwarf))/variably_tapered2_diff(H_trans)
     dN[cond_taper] = dN0*variably_tapered2_diff(H[cond_taper], Hb = K_Hb) # +0.5)  #, K_Ho, K_Hb, K_ALPHA_SI, K_BETA_SI)
+    dN[H>H_divot] *= contrast
     dN0 = dN[cond_taper][-1]/(alpha_elbow*ln10)
     # dN0 *= variably_tapered2_diff(H_elbow) #, K_Ho, K_Hb, K_ALPHA_SI, K_BETA_SI)
     dN[cond_elbow] = dN0 * alpha_elbow*ln10*10**(alpha_elbow*(H[cond_elbow]-H_elbow))
@@ -362,7 +366,8 @@ def main():
     plt.plot(x, cdf, label="Hot; P23")
     # plt.plot(x, pdf)
     plt.plot(x, napier, label="N24")
-    plt.plot(x, pdf.cumsum(), label="Hot; smooth dN")
+    plt.plot(x, pdf.cumsum(), label="Hot; smooth N")
+    plt.plot(x, pdf, label="Hot; smooth dN")
     plt.xlabel('H (r)')
     plt.ylabel('N(H<r)')
     plt.ylim(0.1,1E7)
