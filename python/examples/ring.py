@@ -6,6 +6,7 @@ When run as a script, uses CFEPS survey characterization, runs until 28 sources 
 from ossssim.models import Parametric
 from ossssim import OSSSSim, DetectFile, ModelFile, definitions, plotter
 from astropy import units
+from astropy.table import Table
 import os
 
 class Ring(Parametric):
@@ -65,24 +66,30 @@ def run(model_filename,
                       > 0 continue until ntrack tracked detections;
                       = 0 continue until input exhausted
     """
-    ssim = OSSSSim(characterization_directory=characterization_directory)
 
     # the default Resonant class arguments setup for a Plutino model....
     model = Ring(45*units.au, 1*units.au, seed=seed, component='Ring', size=1, H_max=9)
+    model_file = DetectFile(model_filename,
+                            epoch=model.epoch,
+                            longitude_neptune=model.longitude_neptune,
+                            seed=model.seed)
+    detect_file = DetectFile(detect_filename,
+                             epoch=model.epoch,
+                             longitude_neptune=model.longitude_neptune,
+                             seed=model.seed)
 
-    model_file = DetectFile(model_filename, epoch=model.epoch, longitude_neptune=model.longitude_neptune, seed=model.seed)
-    detect_file = DetectFile(detect_filename, epoch=model.epoch, longitude_neptune=model.longitude_neptune, seed=model.seed)
-
+    ssim = OSSSSim(characterization_directory=characterization_directory,
+                   seed=model.seed)
     n_iter = n_track = n_hits = 0
     for row in model:
         n_iter += 1
-        result = ssim.simulate(row, colors=model.colors, model_band=model.model_band, seed=model.seed, epoch=model.epoch)
+        result = ssim.simulate(row, colors=model.colors, model_band=model.model_band, epoch=model.epoch)
         model_file.write_row(result)
         if result['flag'] > 0:
             n_hits += 1
-            detect_file.write_row(result)
-        if result['flag'] > 2:
+        if result['flag'] == 4:
             n_track += 1
+            detect_file.write_row(result)
         if (0 < ntrack <= n_track) or (0 < -ntrack <= n_iter):
             break
 
@@ -111,10 +118,20 @@ def delete_file_if_exists(filename):
 
 if __name__ == '__main__':
     from ossssim import Characterizations
-    delete_file_if_exists('RingModel.dat')
-    delete_file_if_exists('RingDetect.dat')
-    run('RingModel.dat', 'RingDetect.dat',
-        Characterizations.surveys['CFEPS'],
-        123456789,
-        28)
-    face_down_plot('RingModel.dat', 'RingDetect.dat')
+    seed = 123456789
+    n_track = 10
+    for i in range(2):
+        file_format='ecsv'
+        model_filename = f'RingModel_{i}.{file_format}'
+        detect_filename = f'RingDetect_{i}.{file_format}'
+        delete_file_if_exists(model_filename)
+        delete_file_if_exists(detect_filename)
+        run(model_filename, detect_filename,
+            Characterizations.surveys['CFEPS'],
+            seed,
+            n_track)
+        print(f"iter  : {i}")
+        print(f"niter :{len(Table.read(model_filename, format='ascii.ecsv'))}")
+        print(f"ntrack:{len(Table.read(detect_filename, format='ascii.ecsv'))}")
+    #face_down_plot('RingModel.dat', 'RingDetect.dat')
+
