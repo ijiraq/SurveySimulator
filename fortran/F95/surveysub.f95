@@ -136,7 +136,6 @@ contains
     character(13), save :: stra, stdec
     integer :: in_poly
     logical, save :: newpos, rate_ok, first
-
     data &
          first /.true./, &
          eff_lim /0.4d0/
@@ -154,11 +153,11 @@ contains
              write (screen, *) &
                   'GetSurvey: reached maximum number of pointings, ', n_sur
           else if (ierr .eq. 10) then
-             write (screen, *) 'Unable to open survey file in ',surnam
+             write (screen, *) 'Unable to open survey file in ', surnam
           else if (ierr .eq. 30) then
              goto 100
           else
-             write (screen, *) 'Unknown return code in read_sur.'
+             write (screen, *) 'Unknown return code in read_sur.', ierr
           end if
           return
        end if
@@ -451,7 +450,9 @@ contains
                             end if
 ! We got it, and we know if it was tracked and/or characterized.
 ! Return if tracked and characterized, otherwise keep looping.
-                            if (flag .ge. 4) return
+                            if (flag .ge. 4) then
+                                 return
+                            end if
 !                         else
 !                            if (debug) then
 !                               write (6, *) 'Low efficiency: ', o_m%a, eff_l, &
@@ -491,7 +492,6 @@ contains
                mag_faint, mag_peri, hx, filt_i, color(filt_i)
        end if
     end if
-
     return
 
   end subroutine Detos1
