@@ -102,7 +102,7 @@ class OSSSSim:
     This class simulates the process of observing a model of the solar system using a set of characterized observations.
     """
 
-    def __init__(self, characterization_directory, seed=None):
+    def __init__(self, characterization_directory, seed):
         """
         Args:
             characterization_directory (str): the path to survey characterization to be used.
@@ -113,7 +113,9 @@ class OSSSSim:
 
         self.characterization_directory = characterization_directory
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
-        self.seed = seed is None and 0 or seed
+        self.seed = seed 
+        SurveySubsF95.Surveysub.reset_simulator()
+
 
     def simulate(self, row: dict, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
         """
