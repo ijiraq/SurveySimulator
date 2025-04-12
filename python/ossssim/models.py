@@ -499,7 +499,6 @@ class ModelFileEcsv(ModelFile, OSSSSimFile):
         return self.table
 
 
-
 class ResultsFile(OSSSSimFile):
     """
     ModelFile structure for output file from Simulator detections.
@@ -527,8 +526,8 @@ class ResultsFile(OSSSSimFile):
                           ('Colors', colors.colors),
                           ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
                           ('Model_Band', model_band)])
-        if not randomize:
-            logging.warning('Randomization of reading of files is not supported.')
+        if randomize:
+            DeprecationWarning("Randomize is no longer supported.")
         self.filename = filename
         self._table = None
 
@@ -629,7 +628,7 @@ class Parametric(OSSSSimFile):
         seed = kwargs.get('seed', seed)
         seed = seed is None and numpy.random.randint(1, 999999999) or seed
         epoch = kwargs.get('epoch', epoch)
-        component = kwargs.get('component', component)
+        component = kwargs.get('component', component).replace(" ", "_")
         longitude_neptune = kwargs.get('longitude_neptune', longitude_neptune)
         H_min = kwargs.get('H_min', H_min)
         H_max = kwargs.get('H_max', H_max)
@@ -638,18 +637,6 @@ class Parametric(OSSSSimFile):
         colors = colors is None and PhotSpec() or PhotSpec(colors)
         if 'default' not in colors.colors:
             colors.colors['default'] = PhotSpec.COLORS['default']
-        self.size = size
-        self.j_distribution = self.k_distribution = [0,]*self.size
-        self.comp = component
-        self.H_max = H_max
-        self.H_min = H_min
-        self.model_band = model_band
-        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'phi', 'resamp']
-        for element in self.orbital_elements:
-            setattr(self, f"_{element}", None)
-        self._a = self._e = self._inc = self._node = self._peri = self._M = self._q = self._H = self._j = self._k = None
-        component = component.replace(" ", "_")
-        # The meta data is used to retrieve properties of the object and to write the header of the file.
         self.meta = dict([('Seed', seed),
                           ('Epoch', epoch),
                           ('Longitude_Neptune', longitude_neptune),
@@ -657,7 +644,14 @@ class Parametric(OSSSSimFile):
                           ('Creation_time', time.strftime("%Y-%m-%dT%H:%M:%S")),
                           ('Component', component),
                           ('Model_Band', model_band)])
-        # Note that self.seed value is coming from the OSSSSimFile class, the self.meta declaration setts the header.
+        self.size = size
+        self.j_distribution = self.k_distribution = [0,]*self.size
+        self.comp = component
+        self.H_max = H_max
+        self.H_min = H_min
+        self.model_band = model_band
+        self.orbital_elements = ['a', 'e', 'inc', 'node', 'peri', 'M', 'q', 'H', 'j', 'k', 'phi', 'resamp']
+        self._a = self._e = self._inc = self._node = self._peri = self._M = self._q = self._H = self._j = self._k = None
         self.distributions = distributions.Distributions(self.seed, self.size)
         self.a_neptune = definitions.Neptune['SemimajorAxis']
         self.rebound_archive = f"Rebound_Archive.bin"
