@@ -1,4 +1,4 @@
-U	= poly_dec poly_lib datadec ioutils effut elemutils rot xvutils getsur numutils surveysub
+U	= common_data poly_dec poly_lib datadec ioutils effut elemutils rot xvutils getsur numutils surveysub
 OBJU	= $(addsuffix .o,${U})
 SRCU	= $(addsuffix .f95,${U})
 FPPU	= $(addsuffix .fpp,${U})
@@ -81,7 +81,9 @@ Modules: _$(SSIM).so Makefile
 _$(SSIM).so: $(FPPU) $(OBJU) Makefile
 	\rm -f _$(SSIM).so
 	f90wrap -k kind_map -m $(SSIM) $(FPPU) 1>f90wrap_SurveySubs.log 2>&1
-	f2py-f90wrap --fcompiler=$(FC) -c -m _$(SSIM) $(OBJU) f90wrap_*.f90 1>f2py_SurveySubs.log 2>&1
+	mkdir -p bdir
+	ln -s -f $(CURDIR)/*.mod bdir
+	f2py-f90wrap --build-dir bdir --fcompiler=$(FC) -c -m _$(SSIM) $(OBJU) f90wrap_*.f90 1>f2py_SurveySubs.log 2>&1
 	\rm f90wrap_*.f90
 	\rm *.fpp *.mod *.o
 	sed -e 's/import _$(SSIM)/from . import _$(SSIM)/' -i.bck $(SSIM).py
