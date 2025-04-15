@@ -13,3 +13,6 @@ SurveySubsF95.py
 *.icloud
 dist
 Rebound_Archive*.bin
+fortran/F95/bdir/
+.python-version
+uv.lock
