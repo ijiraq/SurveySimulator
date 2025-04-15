@@ -2,7 +2,7 @@
 REPO = images.canfar.net
 PROJECT = uvickbos
 DEVNAME = ssim
-VERSION = regina
+VERSION = regina2
 
 NAME = $(REPO)/$(PROJECT)/$(DEVNAME)
 
