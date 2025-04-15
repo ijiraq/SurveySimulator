@@ -9,10 +9,17 @@ module surveysub
 
 contains
 
+  subroutine reset_simulator()
+          use common_data
+          first = .true.
+          iff = 0
+  end subroutine reset_simulator
+
   subroutine Detos1 (o_m, jday, hx, color, gb, ph, period, amp, surnam, seed, &
           debug, &
        flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
        jdayp, ic, surna, h_rand, ierr)
+        use common_data
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
 ! This routine determines if a given object is seen by the survey
 ! described in the directory \verb|surnam|.
@@ -82,7 +89,7 @@ contains
 !f2py intent(in) period
 !f2py intent(in) amp
 !f2py intent(in) surnam
-!f2py intent(in, out) seed
+!f2py intent(in) seed
 !f2py intent(in) debug
 !f2py intent(out) flag
 !f2py intent(out) ra
@@ -135,9 +142,8 @@ contains
          incode, outcod, i_sur, nph
     character(13), save :: stra, stdec
     integer :: in_poly
-    logical, save :: newpos, rate_ok, first
+    logical, save :: newpos, rate_ok
     data &
-         first /.true./, &
          eff_lim /0.4d0/
 
     flag = 0
