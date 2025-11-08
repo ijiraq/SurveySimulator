@@ -116,7 +116,7 @@ if __name__ == "__main__":
 				continue
 		logger.info("Read %d rows from column %d of file %s" % (len(data[dataset]),col[dataset],filename[dataset]))
 
-	print ad_bootstrap(data['obs'],data['model'],opt.nboots)
+	print(ad_bootstrap(data['obs'],data['model'],opt.nboots))
 
 
 
