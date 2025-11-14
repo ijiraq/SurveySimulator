@@ -5,6 +5,7 @@ module getsur
   use poly_lib
   use effut
   use ioutils
+  use debug
 
 contains
 
@@ -314,7 +315,7 @@ contains
 !               -2 : double hyperbolic tangent
 !               -1 : single hyperbolic tangent
 !               >0 : number of bins in lookup table
-!     c%f   : filter index (I4) IACHAR(FILTER)
+!     c%f   : single character filter name
 !     c%r_cut : global rate cuts of search (t_ratecut)
 !     c%mag_er : parameters for magnitude uncertainty and skew (6*R8)
 !     c%photf : fractions of cases with 1, 2 and 3 photometric measures (3*R8)
@@ -390,8 +391,7 @@ contains
     else if (word(1)(1:lw(1)) .eq. 'filter') then
        call parse (line(eq_ind+1:), nw_max-1, nw, word(2:), lw(2:))
 !      store the ascii representation of the single character filter name
-!      We add '1' here so that the letter 'A' has code 1 and not 0 (fortran)
-       c%f = iachar(word(2)(1:1))-iachar('A')+1
+       c%f = word(2)
        fi = .true.
        in_rates = .false.
        in_func = .false.

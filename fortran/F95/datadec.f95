@@ -12,6 +12,9 @@ module datadec
   real (kind=8), parameter :: gmb = 1.d0+1.d0/6023600.0d0+1.d0/408523.71d0 &
        +1.d0/328900.56d0+1.d0/3098708.0d0+1.d0/1047.3486d0+1.d0/3497.898d0 &
        +1.d0/22902.98d0+1.d0/19412.24d0+1.d0/1.35d8
+  ! define the order of filters in classic fortran model in/out files
+  character(len=10), parameter :: filters = "grizuVBRIw"
+
 
   ! Internal variables
   real (kind=8) :: om_lim_low, om_lim_high
@@ -48,7 +51,8 @@ module datadec
   type t_charact
      type(t_ratecut) :: r_cut
      real (kind=8) :: mag_er(6), photf(3), track(3)
-     integer :: f, nr
+     character :: f
+     integer :: nr
      type(t_eff_r), dimension(n_r_max) :: eff_p
   end type t_charact
 

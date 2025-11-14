@@ -46,15 +46,16 @@ program Driver
 
   use gimeobjut
   use surveysub
+  use debug
 
   implicit none
 
-  integer, parameter :: n_obj_max = 10000, screen = 6, keybd = 5, verbose = 9
+  integer, parameter :: n_obj_max = 10000, screen = 6, keybd = 5
   integer :: lun_h, lun_t
   type(t_orb_m) :: o_m
 ! color array NEEDS to be length 10 or more!
   real (kind=8) :: h, epoch, m_int, d_ra, d_dec, r, delta, ra, dec, random, &
-       mt, color(10), gb, ph, period, amp, jday_p, m_rand, eff, rn_iter, &
+       mt, color(128), gb, ph, period, amp, jday_p, m_rand, eff, rn_iter, &
        eff_lim, h_rand
   integer :: n_hits, n_track, ierr, seed, flag, isur, ic, n_iter, &
        n_track_max, nchar, values(8), c_idx, i1, i2
@@ -68,7 +69,11 @@ program Driver
   lun_h = 10
   lun_t = 11
   keep_going = .true.
-    debug = .false.
+
+! setup debuging from CL args
+  call debug_init_from_args()
+  debug = dbg_enabled(debug_level())
+
 ! Get arguments
 ! Seed for random number generator
   read (5, *, err=9999) seed

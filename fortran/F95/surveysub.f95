@@ -6,6 +6,7 @@ module surveysub
   use numutils
   use getsur
   use ioutils
+  use debug
 
 contains
 
@@ -109,7 +110,7 @@ contains
 !f2py intent(out) h_rand
 !f2py intent(out) ierr
 
-    implicit none
+   implicit none
 
     type(t_orb_m), intent(in) :: o_m
     integer, intent(inout) :: seed
@@ -123,7 +124,7 @@ contains
     character(*), intent(in) :: surnam
     character(10), intent(out) :: surna
 
-    integer, parameter :: screen = 6, keybd = 5, verbose = 6, &
+    integer, parameter :: screen = 6, keybd = 5, &
          lun_s = 13, lun_h = 6
     type(t_orb_m), save :: o_ml
     type(t_obspos), save :: obspos(2)
@@ -145,9 +146,12 @@ contains
     logical, save :: newpos, rate_ok
     data &
          eff_lim /0.4d0/
+    CHARACTER(len=256) :: log_msg
+
 
     flag = 0
     flag_l = 0
+    call debug_set(debug)
 
     if (first) then
        first = .false.
@@ -170,23 +174,21 @@ contains
 100    continue
 ! Determine overall faintest 'x' magnitude for all surveys
        mag_faint = 0.d0
-       if (debug) then
-          write (verbose, *) 'Number of surveys: ', n_sur
-          write (verbose, *) 'Survey', ' Survey Limit ', ' Faintest Limit'
-       end if
+       write (log_msg, *) 'Number of surveys: ',n_sur
+       call dbg_print(2, log_msg)
+       write (log_msg, *)  'Survey','Survey Limit','Faintest Limit'
+       call dbg_print(4, log_msg)
+
        do i_sur = 1, n_sur
 ! sur_mmag(i_sur) in survey's filter
 ! mag_max in 'x' filter
-          mag_max = sur_mmag(i_sur) - color(points(i_sur)%c%f)
+          mag_max = sur_mmag(i_sur) - color(filter_to_index(points(i_sur)%c%f))
           if (mag_max .gt. mag_faint) mag_faint = mag_max
-          if (debug) then
-             write (verbose, *) i_sur, mag_max, mag_faint
-          end if
+          write(log_msg, *) i_sur, mag_max, mag_faint
+          call dbg_print(4, log_msg)
        end do
-       if (debug) then
-          write (verbose, *) 'Faintest magnitude = ', mag_faint
-       end if
-!       stop
+       write(log_msg, *) 'Faintest magnitude =',mag_faint
+       call dbg_print(2, log_msg)
     end if
 
 ! Compute approximate maximum apparent 'x' magnitude
@@ -215,7 +217,7 @@ contains
           track_max = points(i_sur)%c%track(1)
           track_mag = points(i_sur)%c%track(2)
           track_slope = points(i_sur)%c%track(3)
-          filt_i = points(i_sur)%c%f
+          filt_i = filter_to_index(points(i_sur)%c%f)
           mag_err = points(i_sur)%c%mag_er
           photf = points(i_sur)%c%photf
           poly = points(i_sur)%poly
@@ -225,6 +227,8 @@ contains
 ! Sun, than the faintest magnitude recorded for that survey, in 'x'
 ! band.
 ! mag_max in 'x' filter
+!         write (log_msg, *) "filter:", points(i_sur)%c%f, "index: ", filt_i, "color: ", color(filt_i)
+!         call dbg_print(2, log_msg)
           mag_max = sur_mmag(i_sur) - color(filt_i)
 
 ! Any chance this survey can see the object ?
@@ -243,17 +247,24 @@ contains
                 jday_o = obspos(1)%jday
                 newpos = .true.
              end if
-             if (debug) then
-                write (verbose, *) 'Survey: ', i_sur
-                write (verbose, *) 'Target x/y/z location, epoch of elements, epoch of observation'
-                write (verbose, *) pos%x, pos%y, pos%z, jday, jday_o
-                write (verbose, *) 'Observer Location at observation'
-                write (verbose, *) obspos(1)%pos%x, obspos(1)%pos%y, &
+             if (debug_level() > 1) then
+                write (log_msg, *) 'Survey: ', i_sur
+                call dbg_print(2, log_msg)
+                write (log_msg, *) 'Target x/y/z location, epoch of elements, epoch of observation'
+                call dbg_print(2, log_msg)
+                write (log_msg, *) pos%x, pos%y, pos%z, jday, jday_o
+                call dbg_print(2, log_msg)
+                write (log_msg, *) 'Observer Location at observation'
+                call dbg_print(2, log_msg)
+                write (log_msg, *) obspos(1)%pos%x, obspos(1)%pos%y, &
                      obspos(1)%pos%z, obspos(1)%jday
-                write (verbose, *) 'Observer Location at 2h later'
-                write (verbose, *) obspos(2)%pos%x, obspos(2)%pos%y, &
+                call dbg_print(2, log_msg)
+                write (log_msg, *) 'Observer Location at 2h later'
+                call dbg_print(2, log_msg)
+                write (log_msg, *) obspos(2)%pos%x, obspos(2)%pos%y, &
                      obspos(2)%pos%z, obspos(2)%jday
-             end if
+            end if
+
              call DistSunEcl (obspos(1)%jday, pos, r_l)
              call RADECeclXV (pos, obspos(1)%pos, delta_l, ra_l, dec_l)
              p(1) = ra_l
@@ -274,7 +285,7 @@ contains
              end if
 
 ! Format angles for output
-             if (debug) then
+             if (debug_level() > 1) then 
                 incode = 1
                 outcod = 1
                 call Format (ra_l, incode, outcod, stra, ierr)
@@ -292,11 +303,14 @@ contains
                    write (screen, *) 'ierr = ', ierr
                    return
                 end if
-                write (verbose, *) 'Object M, peri, node, ra, dec: '
-                write (verbose, '(3(f8.3, 1x), a13, 1x, a13)') &
+                write (log_msg, *) 'Object M, peri, node, ra, dec: '
+                call dbg_print(2, log_msg)
+                write (log_msg, '(3(f8.3, 1x), a13, 1x, a13)') &
                      o_m%m/drad, o_m%peri/drad, o_m%node/drad, stra, stdec
-                write (verbose, *) 'Object ra(deg), dec(deg), mag and mag_max'
-                write (verbose, *) ra_l/drad, dec_l/drad, m_int_l, mag_max
+                call dbg_print(2, log_msg)
+                write (log_msg, *) 'Object ra(deg), dec(deg), mag and mag_max'
+                write (log_msg, *) ra_l/drad, dec_l/drad, m_int_l, mag_max
+                call dbg_print(2, log_msg)
              end if
 
 ! Still any chance to see it (comparison in survey filter band) ?
@@ -308,21 +322,27 @@ contains
 !
 ! Here we use polygons.
                 in_poly = point_in_polygon(p, poly)
-                if (debug) then
-                   write (verbose, *) 'Check for FOV.'
-                   write (verbose, *) poly%n, in_poly
+                if (debug_level()>1) then
+                   write (log_msg, *) 'Check for FOV.'
+                   call dbg_print(2, log_msg)
+
+                   write (log_msg, *) poly%n, in_poly
+                   call dbg_print(2, log_msg)
                    do i = 1, poly%n+1
-                      write (verbose, *) poly%x(i)/drad, poly%y(i)/drad
+                      write (log_msg, *) poly%x(i)/drad, poly%y(i)/drad
+                      call dbg_print(2, log_msg)
                    end do
                 end if
                 if (in_poly .gt. 0) then
 
 ! Check for chip gaps, ..., the filling factor.
                    random = ran3(seed)
-                   if (debug) then
-                      write (verbose, *) &
+                   if (debug_level() > 1 ) then
+                      write (log_msg, *) &
                            'In FOV of survey. Check filling factor.'
-                      write (verbose, *) random, ff
+                      call dbg_print(2, log_msg)
+                      write (log_msg, *) random, ff
+                      call dbg_print(2, log_msg)
                    end if
                    if (random .le. ff) then
 
@@ -333,11 +353,15 @@ contains
                       call pos_cart (o_ml, pos2)
                       call DistSunEcl (obspos(2)%jday, pos2, r2)
                       call RADECeclXV (pos2, obspos(2)%pos, delta2, ra2, dec2)
-                      if (debug) then
-                         write (verbose, *) 'Check for second position.'
-                         write (verbose, *) o_ml%m
-                         write (verbose, *) pos2%x, pos2%y, pos2%z
-                         write (verbose, *) delta2, ra2/drad, dec2/drad
+                      if (debug_level()>1) then
+                         write (log_msg, *) 'Check for second position.'
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) o_ml%m
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) pos2%x, pos2%y, pos2%z
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) delta2, ra2/drad, dec2/drad
+                         call dbg_print(2, log_msg)
                       end if
                       d_ra_l = ra_l - ra2
                       if (d_ra_l .gt. Pi) d_ra_l = d_ra_l - TwoPi
@@ -352,17 +376,24 @@ contains
                       rate_ok = (rate .ge. rc%min) .and. (rate .le. rc%max)
                       rate_ok = rate_ok .and. &
                            (dabs(rc%angle - angle) .le. rc%hwidth)
-                      if (debug) then
-                         write (verbose, *) 'Check for rate.'
-                         write (verbose, *) 'object rate, survey rate, min, max'
-                         write (verbose, *) rate/drad*3600.d0/24.d0, &
+                      if (debug_level()>1) then
+                         write (log_msg, *) 'Check for rate.'
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) 'object rate, survey rate, min, max'
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) rate/drad*3600.d0/24.d0, &
                               rc%min/drad*3600.d0/24.d0, &
                               rc%max/drad*3600.d0/24.d0
-                         write (verbose, *) 'object angle, survey angle, centre, width'
-                         write (verbose, *) angle/drad, rc%angle/drad, &
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) 'object angle, survey angle, centre, width'
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) angle/drad, rc%angle/drad, &
                               rc%hwidth/drad
-                         write (verbose, *) 'object x/y/z position'
-                         write (verbose, *) pos2%x, pos2%y, pos2%z
+                        call dbg_print(2, log_msg)
+                         write (log_msg, *) 'object x/y/z position'
+                         call dbg_print(2, log_msg)
+                         write (log_msg, *) pos2%x, pos2%y, pos2%z
+                         call dbg_print(2, log_msg)
                       end if
                       if (rate_ok) then
 
@@ -370,10 +401,10 @@ contains
                          eff_l = eta(points(i_sur)%c%eff_p, &
                               points(i_sur)%c%nr, m_int_l, rate, maglim)
                          random = ran3(seed)
-                         if (debug) then
-                            write (verbose, *) 'Rate OK. Check detection.'
-                            write (verbose, *) random, ' < ', eff_l, ' (detection eff at obj mag: ', maglim, ' )'
-                         end if
+                         call dbg_print(2, 'Rate OK. Check detection.')
+                         write (log_msg, *) random, ' < ', eff_l, &
+                         ' (detection eff at obj mag: ', maglim, ' )'
+                         call dbg_print(2, log_msg)
                          if (random .le. eff_l) then
 ! Compute "measured" magnitude with 1 to 3 averaged values
                             random = ran3(seed)
@@ -392,27 +423,26 @@ contains
                                  points(i_sur)%c%nr, m_rand_l, rate, maglim)
 ! Hurray ! We found it.
                             flag_l = 1
-                            if (debug) then
-                               write (verbose, *) 'Hurray ! We found it.'
-                            end if
+                            write (log_msg, *) 'Hurray ! We found it.'
+                            call dbg_print(2, log_msg)
 
 ! Determine if tracked
                             random = ran3(seed)
                             track = min(track_max, &
                                  1.d0 + (m_rand_l - track_mag)*track_slope)
-                            if (debug) then
-                               write (verbose, *) &
+                            if (debug_level()>1) then
+                               write (log_msg, *) &
                                     'Checking for track if object was tracked: ', random, track
+                               call dbg_print(2, log_msg)
                             end if
                             if (random .le. track) then
                                flag_l = 2
                             end if
 ! Decide if characterized or not
-                            if (debug) then
-                               write (verbose, *) &
+                            write (log_msg, *) &
                                     'Checking for characterization limits: ', &
-                                    m_rand_l, maglim, eff_l, eff_lim
-                            end if
+                                     m_rand_l, maglim, eff_l, eff_lim
+                            call dbg_print(2, log_msg)
                             if (maglim .gt. 0.d0) then
                                if (m_rand_l .le. maglim) flag_l = flag_l + 2
                             else
@@ -440,11 +470,10 @@ contains
                                   write (screen, *) 'Survey number: ', i_sur
                                   return
                                end if
-                               if (debug) then
-                                  write (verbose, *) 'Computed magnitudes for observing circumstance.'
-                                  write (verbose, *) 'r', r, 'delta', delta, &
+                               call dbg_print(2, 'Computed magnitudes for observing circumstance.')
+                                write (log_msg, *) 'r', r, 'delta', delta, &
                                           'm_rand', m_rand, 'alpha', alpha, 'h_rand', h_rand
-                               end if
+                               call dbg_print(2, log_msg)
                                flag = flag_l
                                ra = ra_l
                                dec = dec_l
@@ -459,46 +488,17 @@ contains
                             if (flag .ge. 4) then
                                  return
                             end if
-!                         else
-!                            if (debug) then
-!                               write (6, *) 'Low efficiency: ', o_m%a, eff_l, &
-!                                    random, m_int_l, rate
-!                            end if
                          end if
-!                      else
-!                         if (debug) then
-!                            write (6, *) 'Rate out of range: ', o_m%a, r_min, &
-!                                 r_max, rate, ang_w, dabs(ang - angle)
-!                         end if
                       end if
-!                   else
-!                      if (debug) then
-!                         write (6, *) 'Falling in chip gaps: ', o_m%a, ff, random
-!                      end if
                    end if
                 end if
-!             else
-!                if (debug) then
-!                   write (6, *) 'Too faint for this survey: ', o_m%a, i_sur, &
-!                        sur_mmag(i_sur), m_int_l, hx, filt_i, color(filt_i)
-!                end if
              end if
-!          else
-!             if (debug) then
-!                write (6, *) 'Too faint (peri) for this survey: ', o_m%a, &
-!                     i_sur, mag_max, mag_peri, hx, filt_i, color(filt_i)
-!             end if
           end if
 
 ! End loop on surveys
        end do
-    else
-       if (debug) then
-          write (6, *) 'Too faint (peri) for all surveys: ', o_m%a, &
-               mag_faint, mag_peri, hx, filt_i, color(filt_i)
-       end if
-    end if
-    return
+   end if
+   return
 
   end subroutine Detos1
 

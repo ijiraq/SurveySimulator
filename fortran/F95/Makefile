@@ -1,17 +1,17 @@
-U	= common_data poly_dec poly_lib datadec ioutils effut elemutils rot xvutils getsur numutils surveysub
+U	= debug common_data poly_dec poly_lib datadec ioutils effut elemutils rot xvutils getsur numutils surveysub 
 OBJU	= $(addsuffix .o,${U})
 SRCU	= $(addsuffix .f95,${U})
 FPPU	= $(addsuffix .fpp,${U})
 MODU	= $(addsuffix .mod,${U})
 
-M   = modelutils GiMeObj
+M   = modelutils GiMeObj 
 OBJM	= $(addsuffix .o,${M})
 SRCM	= $(addsuffix .f95,${M})
 FPPM	= $(addsuffix .fpp,${M})
 MODM	= $(addsuffix .mod,${M})
 
 
-A	= poly_dec datadec ioutils elemutils rot
+A	= poly_dec datadec ioutils elemutils rot 
 OBJA	= $(addsuffix .o,${A})
 SRCA	= $(addsuffix .f95,${A})
 FPPA	= $(addsuffix .fpp,${A})

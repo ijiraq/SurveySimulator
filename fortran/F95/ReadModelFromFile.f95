@@ -106,15 +106,20 @@ contains
 !     epoch : Time of elements [JD] (R8)
 !     h     : Absolute magnitude of object in 'x' band, what ever this is (R8)
 !     color : Array of colors (10*R8)
-!                colors(1) : g-x
-!                colors(2) : r-x
-!                colors(3) : i-x
-!                colors(4) : z-x
-!                colors(5) : u-x
-!                colors(6) : V-x
-!                colors(7) : B-x
-!                colors(8) : R-x
-!                colors(9) : I-x
+! New process for colors uses IACHAR(FILTER)+1 : FILTER - X
+! to determine offset. e.g. 1 below becomes IACHAR('g')+1
+! Array is read from file in order below and mapped into and
+! out of 'color' array using IACHAR(FILTER)-IACHAR('A')+1
+! see ioutils.filter_to_index subroutine for actual code.
+!                color(39) : g-x
+!                color(50) : r-x
+!                color(41) : i-x
+!                color(58) : z-x
+!                color(53) : u-x
+!                color(22) : V-x
+!                color(2) :  B-x
+!                color(18) : R-x
+!                color(9) :  I-x
 !     gb    : opposition surge factor, Bowell formalism (R8)
 !     ph    : phase of lightcurve at epoch [rad] (R8)
 !     period: period of lightcurve [day] (R8)
@@ -161,7 +166,7 @@ contains
     integer, intent(inout) :: seed
     integer, intent(out) :: ierr, nchar
     type(t_orb_m), intent(out) :: o_m
-    real (kind=8), intent(out) :: epoch, h, color(10), gb, ph, period, amp
+    real (kind=8), intent(out) :: epoch, h, color(128), gb, ph, period, amp
     character(*), intent(in) :: filena
     character(100), intent(out) :: commen
 
@@ -184,7 +189,8 @@ contains
                                  ! in 'x' band
          obj_jday(n_obj_max),   &! Array of times of elements [JD]
          random,                &! Random number
-         color0(10)              ! Color parameters of model
+         color0(128)             ! Color parameters of model
+    integer :: ic                ! the index of the survey filter into the filters array
     character(5) :: zone         ! Time zone
     character(8) :: date         ! Date of execution
     character(10), save :: time  ! Time of execution
@@ -237,11 +243,12 @@ contains
 ! Get new objects. If this is the first call to GetDistrib, it will
 ! first open the data file, otherwise, will simply return the following
 ! objects. When reaching the end of the file, returns "ierr_d = 30".
+        color0 = 0.0d0
        call GetDistrib (filena, lun_d, n_obj_max, n_obj, obj_o, &
-            obj_h, obj_jday, color0, comp, ierr_d)
+            obj_h, obj_jday, color, comp, ierr_d)
 
        if (n_obj <= 0 .and. ierr_d /= 30) then
-           write (screen, *) 'Got zero objects from file but not at end'
+           write (6, *) 'Got zero objects from file but not at end'
           ierr = -20
           return
        end if
@@ -267,6 +274,7 @@ contains
           ierr = -20
           return
        end if
+        ! map from fixed order color0 array to ascii ordered color array
     end if
 ! Ok, now we have data to send back
 100 continue
@@ -307,11 +315,6 @@ contains
     ph = ph0
     period = period0
     amp = amp0
-
-! Get colors for object
-    do ierr_d = 1, 10
-       color(ierr_d) = color0(ierr_d)
-    end do
 
 ! Prepare return code
     ierr = 0
@@ -444,7 +447,7 @@ contains
     real (kind=8), save :: jd
     real (kind=8), parameter :: Pi = 3.141592653589793238d0, drad = Pi/180.0D0
     integer, parameter :: nw_max = 20
-    integer :: lun_in, ierr, j, nw, lw(nw_max)
+    integer :: lun_in, ierr, j, nw, lw(nw_max), idx, ic
     character(*) :: filen
     character(200) :: line
     character(80) :: word(nw_max)
@@ -458,7 +461,7 @@ contains
        open (unit=lun_in, file=filen, status='old', err=1000)
        opened = .true.
        jd = -1.d0
-       color(1:10) = 0.d0
+       color(1:10)  = 0.d0
     end if
 
 1500 continue
@@ -471,7 +474,11 @@ contains
           read (line(26:100), *, err=1500, end=1500) jd
        end if
        if (line(1:10) .eq. '# Colors =') then
-          read (line(11:), *, err=1500, end=1500) (color(j),j=1,10)
+           call parse (line(11:), nw_max, nw, word, lw)
+           do idx = 1, nw
+                ic = filter_to_index(filters(idx:idx))
+                read (word(idx), *, err=1500, end=1500) color(ic)
+           end do
        end if
        goto 1500
     end if

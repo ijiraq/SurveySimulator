@@ -1,6 +1,7 @@
 module ioutils
 
   use datadec
+    use debug
 
 contains
 
@@ -226,7 +227,7 @@ contains
     return
   end subroutine parse
 
-  subroutine Format (angle, incode, outcod, string, ierr)
+  subroutine Format(angle, incode, outcod, string, ierr)
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
 ! This routine formats an angle (in rd) into deg, min, sec or hour, min,
 ! sec. Output is a string.
@@ -381,6 +382,40 @@ contains
 998   ierr = 10
 999   return
     end subroutine read_jpl_csv
+
+!   provides a list of color values for the fixed format files
+!   where filters are in the order given in datadec.filters
+    function color_array(colors)
+        implicit none
+        integer :: colors(*)
+        integer :: idx, ic
+        integer, DIMENSION(len(filters)) :: color_array
+
+! For each character in string 'filters' look up the index
+! in the colors array and map it to a len(filters) array
+! for use in older format files.
+        do idx = 1, len(filters)
+            ic = filter_to_index(filters(idx:idx))
+            color_array(idx) = colors(ic)
+        end do
+
+    end function color_array
+
+! Givn a single letter filter return the index in the color array
+    integer function filter_to_index(filter_name)
+        implicit none
+        character :: filter_name
+        filter_to_index = IACHAR(filter_name) - IACHAR('A') + 1
+    end function filter_to_index
+
+! Given an index return the letter for this filter
+    character function index_to_filter(idx)
+        implicit none
+        integer :: idx
+        index_to_filter = CHAR(idx+ICHAR('A') - 1)
+    end function index_to_filter
+
+
 
 end module ioutils
 
