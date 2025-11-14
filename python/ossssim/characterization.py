@@ -15,9 +15,9 @@ class CharacterizationParameter(BaseModel, validate_assignment=True):
     name: ClassVar[str] = 'base'
 
     def __str__(self):
-        values = " ".join([ f"{self.__dict__.get(key, None)}"
-                  for key in self.eff_file_format_order ])
-        return f"{self.name}= {values}"
+        values = [ self.__dict__.get(key, None) for key in self.eff_file_format_order ]
+        s = " ".join([ type(value)==str and f"{value}" or f"{value:.2f}" for value in values ])
+        return f"{self.name}= {s}"
 
     @classmethod
     def from_string(cls, line: str) -> Self:
@@ -56,6 +56,14 @@ class RateCut(CharacterizationParameter):
         if self.rate_min >= self.rate_max:
             raise ValueError('rate_max must be greater than rate_min')
         return self
+    
+    @property
+    def description(self) -> List[str]:
+        """
+        Return a string description of the rate cut
+        """
+        return ["Rate and Angle boundaries used when searching.",
+                "Rates in arcseconds per hour. Angles in degrees."]
 
 
 class PhotFraction(CharacterizationParameter):
@@ -75,12 +83,40 @@ class PhotFraction(CharacterizationParameter):
             raise ValueError('The sum of the photometric fractions must be 1')
         return self
     
+    @property
+    def description(self) -> List[str]:
+        """
+        Return a string description of the photometric fractions
+        """
+        return ["Number of observagtions used to determine the magnitude.",
+                "frac_one = fraction of objects with 1 photometric measurement",
+                "frac_two = fraction of objects with 2 photometric measurements",
+                "frac_three = fraction of objects with 3 photometric measurements",
+                "frac_one + frac_two + frac_three = 1.0",
+                "frac_one, frac_two, frac_three >= 0.0"]
+    
 
 class TrackingFraction(CharacterizationParameter):
+    """
+    Fraction of detections that were tracked as a function of magnitude.,
+    peak = peak value of the tracking fraction,
+    Rc = for objects objects brighter than Rc use peak,
+    slope = traking fraction delines with linear slope until reaching 0,
+        
+    Tracking fraction is 0 at Rc + slope*[R-Rc],
+    peak >= 0.0, Rc >= 22.0, slope <= 0.0
+    """
     name: ClassVar[str] = 'track_frac'
     peak: float = Field(1.0, ge=0.0, le=1.0)
     Rc: float = Field(24.0, ge=22.0, le=31.0)
     slope: float = Field(-5, ge=-10.0, le=0.0)  # starting at Rc drop from peak to 0 with slope
+
+    @property
+    def description(self) -> List[str]:
+        """
+        Return a string description of the tracking fraction
+        """
+        return []
 
 
 class MagError(CharacterizationParameter):
@@ -274,32 +310,3 @@ class Characterization(BaseModel):
             value += f"{component}\n"
         return value
 
-function = 'double'
-M_0 = 24.0
-A = 0.9
-w1 = 0.5
-w2 = 0.5
-
-characterization = Characterization(
-    components=[
-    RateCut(rate_min=0.5, rate_max=10.0),
-    MagError(magerr_bright=0.2,
-                       magerr_slope=0.5,
-                       mag_mid=M_0+w1,
-                       magerr_faint_slope=0.5,
-                       mag_faint=M_0+w2,
-                       magerr_bias=-0.2),
-    PhotFraction(frac_one=0.5, frac_two=0.3, frac_three=0.2),
-    TrackingFraction(
-        peak=1.0,
-        Rc=M_0+w2,
-        slope=-5.0
-    ),
-    Bandpass(Bandpass='r'),
-    Rates(rate_min=0.5, rate_max=10.0),
-    Function(function='double'),
-    DoubleTanhParam(A=1.0, M_0=24.0, w_1=1.0, w_2=0.5),
-    MagLim(mag_lim=24.0)
-    ])
-
-print(characterization)
