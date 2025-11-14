@@ -1,11 +1,15 @@
 # this builds a container that can be used to run the SurveySimulator (python and fortran)
 # This container is loaded into the canfar Science Portal for use/execution.
 # Can also be used directly with docker.
-FROM jupyter/scipy-notebook as base
-USER root
-ENV DEBIAN_FRONTEND="noninteractive"
+FROM condaforge/miniforge3:latest as base
+# FROM jupyter/scipy-notebook as base
+# USER root
+# ENV DEBIAN_FRONTEND="noninteractive"
 RUN apt -y -q update 
-RUN apt -y -q install wget man man-db git build-essential zip unzip xdg-utils less emacs nano xterm vim rsync tree gfortran
+RUN apt -y -q install curl wget man man-db git build-essential zip unzip xdg-utils less emacs nano xterm vim rsync tree gfortran
+RUN apt -y install python3-numpy
+RUN apt -y -q install meson ninja-build
+
 
 
 # SKAHA system settings and permissions
@@ -27,11 +31,11 @@ RUN chmod +x /skaha/startup.sh
 # RUN apt-get update && yes | apt-get install python3.11 pip
 # RUN yes | apt install python3.12-venv
 # RUN python3 -m venv /opt/SSim/venv
+RUN pip install jupyter
 RUN pip install cadctap
 RUN pip install vos
-RUN pip install numpy
 RUN pip install scipy
-RUN pip install 'astropy<6'
+RUN pip install astropy
 RUN pip install astroquery
 RUN pip install matplotlib
 RUN pip install f90wrap
@@ -39,21 +43,26 @@ RUN pip install f90wrap
 RUN pip install rebound
 RUN pip3 install astroplan
 RUN pip install Deprecated
+RUN pip install canfar
+
 
 # Build the SSim
 RUN mkdir -p /opt/SSim/fortran
 COPY fortran /opt/SSim/fortran
 COPY python /opt/SSim/python
 WORKDIR /opt/SSim/fortran/F95
+
+# install Fortran based binary of SSim
 RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
 # RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections 
 # RUN apt-get install -y ttf-mscorefonts-installer
 
+# install the Python based version of SSim
 FROM base as deploy
 WORKDIR /opt/SSim/python
-RUN pip install .
-# RUN apt-get update && yes | apt-get install curl
+# RUN pip install .
+# RUN python setup.py install
 
 # Two build sets, deploy and test
 FROM base as test
@@ -63,7 +72,7 @@ RUN groupadd -g 1001 testuser
 RUN useradd -u 1001 -g 1001 -s /bin/bash -d /arc/home/testuser -m testuser
 RUN chown -R testuser /opt/SSim
 WORKDIR /opt/SSim/python
-RUN pip3 install -e .
+# RUN pip3 install -e .
 USER testuser
 WORKDIR /arc/home/testuser
 COPY etc/ReadModelFromFile.in ./
