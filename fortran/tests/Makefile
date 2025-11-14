@@ -1,4 +1,5 @@
 MODELS = InnerHotModel ReadModelFromFile HST
+# MODELS = ReadModelFromFile
 LANGUAGE = F95
 
 %: %.sh
@@ -18,4 +19,3 @@ $(MODELS): clean
 
 clean:
 	\rm -f ModelUsed.dat SimulDetect.dat SimulTrack.dat LOG test
-
