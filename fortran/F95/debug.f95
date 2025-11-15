@@ -2,7 +2,6 @@
 
 module debug
   IMPLICIT NONE
-  PRIVATE
   INTEGER, PARAMETER :: STRLEN = 256
 
   LOGICAL :: debug_on   = .FALSE.
@@ -10,8 +9,8 @@ module debug
   INTEGER :: log_unit   = 6       ! default to stdout (*)
   LOGICAL :: log_opened = .FALSE.
 
-  PUBLIC :: debug_init_from_args, debug_set, debug_set_logfile
-  PUBLIC :: dbg_enabled, dbg_print, assert_ok, debug_level
+!  PUBLIC :: debug_init_from_args, debug_set, debug_set_logfile
+!  PUBLIC :: dbg_enabled, dbg_print, assert_ok, debug_level
 
 CONTAINS
 
@@ -21,10 +20,6 @@ CONTAINS
     debug_on  = on
     IF (PRESENT(level)) debug_lvl = level
   END SUBROUTINE debug_set
-
-  INTEGER FUNCTION debug_level()
-    debug_level = debug_lvl
-  END FUNCTION debug_level
 
   LOGICAL FUNCTION dbg_enabled(level)
     INTEGER, INTENT(IN) :: level
@@ -121,6 +116,7 @@ CONTAINS
   LOGICAL FUNCTION starts_with(s, prefix)
     CHARACTER(*), INTENT(IN) :: s, prefix
     INTEGER :: lp
+
     lp = LEN_TRIM(prefix)
     IF (LEN_TRIM(s) < lp) THEN
       starts_with = .FALSE.

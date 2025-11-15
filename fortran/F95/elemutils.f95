@@ -117,7 +117,6 @@ contains
        write (6, *) o_m%node, o_m%peri, o_m%m
        stop
     end if
-1100 continue
 
 ! Coordinates relative to the orbit.
 ! The cartisian coordinate are given by $\vec X = R_{xq} \vec q$
@@ -257,7 +256,6 @@ contains
        write (6, *) o_m%node, o_m%peri, o_m%m
        stop
     end if
-1100 continue
 
 ! Coordinates relative to the orbit.
 ! The cartisian coordinate are given by $\vec X = R_{xq} \vec q$
@@ -321,7 +319,6 @@ contains
 ! \end{verse}
 !
 ! \subsubsection{Declarations}
-    integer :: i
     real (kind=8) :: delau(8), cos_i, sin_i
 
 ! Computation of sinus and cosines of angles.

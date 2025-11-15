@@ -197,7 +197,7 @@ contains
     real (kind=8), intent(in) :: mag_t, mag_er(:)
     real (kind=8), intent(out) :: magerr, mag
     real (kind=8) :: tmp, mag_th
-    integer :: i
+
 
     mag_th = mag_t
 !      tmp = log10(mag_er(2)/mag_er(1))/(mag_er(3)-21.d0)

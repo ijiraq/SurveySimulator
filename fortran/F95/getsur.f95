@@ -215,7 +215,6 @@ contains
 
     type(t_polygon), intent(out) :: poly
     real (kind=8), intent(in) :: ra, dec
-    real (kind=8) :: dra
     integer :: j
 
     do j = 1, poly%n
@@ -243,7 +242,7 @@ contains
 !
 !...Initialization
 !
-100 val = 0.0D00
+    val = 0.0D00
     piece = 0.0d0
     j = 1
     dpfind = 0
@@ -391,7 +390,7 @@ contains
     else if (word(1)(1:lw(1)) .eq. 'filter') then
        call parse (line(eq_ind+1:), nw_max-1, nw, word(2:), lw(2:))
 !      store the ascii representation of the single character filter name
-       c%f = word(2)
+       c%f = word(2)(1:1)
        fi = .true.
        in_rates = .false.
        in_func = .false.
@@ -633,7 +632,7 @@ contains
     integer, intent(out) :: ierr
     character(*), intent(in) :: dirn
     type(t_v3d) :: vel
-    real (kind=8) :: w, h, ra, dec, r
+    real (kind=8) :: w, h, ra, dec
     integer :: j, nw, lw(nw_max), lun_e, ierr_e, i1, i2, i3, i4
     character(100) :: line, fname
     character(80) :: word(nw_max)
@@ -762,7 +761,7 @@ contains
              j = j - 1
              goto 1700
           end if
-          point%c%eff_p(i1)%n = amin0(j+1, point%c%eff_p(i1)%n)
+          point%c%eff_p(i1)%n = ceiling(amin0(j+1, point%c%eff_p(i1)%n))  
        end if
     end do
 
@@ -844,7 +843,7 @@ contains
     character(*), intent(in) :: survey
     type(t_pointing) :: point
     real (kind=8) :: rate, tmp, mag, eff
-    integer :: nr, n, j, i, i1, i2
+    integer :: nr, n, j, i1, i2
     logical :: finished
 
 ! Open and read in survey definitions
@@ -934,7 +933,7 @@ contains
 !                write (18, *) mag, eff
 ! END comment out in production mode
                 if ((eff .eq. 0.d0) .and. (mag .ge. -0.05d0)) goto 250
-260          continue
+
              sur_mm(n_sur) = max(sur_mm(n_sur), mag+0.1d0)
           end if
 ! START comment out in production mode

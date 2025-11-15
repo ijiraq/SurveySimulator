@@ -61,7 +61,7 @@ contains
       ir = ir + 1
       if ((r-eff_p(ir)%min)*(r-eff_p(ir)%max) .le. 0.d0) goto 600
       if (ir .lt. nr) goto 500
-510 continue
+
     eta_raw = 0.d0
     maglim = 0.d0
     return

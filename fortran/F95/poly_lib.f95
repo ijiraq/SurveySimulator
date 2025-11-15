@@ -161,7 +161,7 @@ contains
           return
        end if
        x_y0 = x_y0*(p2(y) - p1(y))
-       if (x_y0 .ne. 0.d0) summand = summand + sign(1.d0, x_y0)
+       if (x_y0 .ne. 0.d0) summand = summand + ceiling(sign(1.d0, x_y0))
     end if
 
 ! Check if crossing y axis
@@ -172,7 +172,7 @@ contains
           return
        end if
        y_x0 = y_x0*(p1(x) - p2(x))
-       if (y_x0 .ne. 0.d0) summand = summand + sign(1.d0, y_x0)
+       if (y_x0 .ne. 0.d0) summand = summand + ceiling(sign(1.d0, y_x0))
     end if
     calc_walk_summand = summand
     return

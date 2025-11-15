@@ -37,6 +37,7 @@ contains
 
     finished = .false.
     i1 = 1
+    i2 = 1
 100 continue
     if ((base_name(i1:i1) .eq. char(0)) &
          .or. (base_name(i1:i1) .eq. char(9)) &
@@ -48,7 +49,6 @@ contains
        end if
        goto 100
     end if
-101 continue
 
     i2 = len
 110 continue
@@ -107,7 +107,6 @@ contains
        end if
        goto 100
     end if
-101 continue
 
     i2 = i1 + 1
 110 continue
@@ -336,7 +335,8 @@ contains
       character(len = 512) :: line
       character(len = 30) :: date
       real(kind=8) ejd
-      integer :: iend, header_offset, ferr, offset
+      integer(kind=8) :: header_offset, offset
+      integer :: iend, ferr
       logical :: read_header
       
       

@@ -32,13 +32,12 @@ contains
 ! Chapront et al. 2002 gamma to O_icrs in arcsec
     real (kind=8), parameter :: Pi = 3.141592653589793238d0, phi = 0.05542d0, &
          degrad = Pi/180.d0
-    real (kind=8) :: phir
+    real (kind=8) :: phir, posout(3)
 
     phir    = phi/3600d0*degrad
  
-    call RotZ(-phir, poseq, posecl)
-
-    call RotX(epsilon, posecl, posecl)
+    call RotZ(-phir, poseq, posout)
+    call RotX(epsilon, posout, posecl)
 
     return
   end subroutine equ_ecl
@@ -71,13 +70,13 @@ contains
 ! Chapront et al. 2002 gamma to O_icrs in arcsec
     real (kind=8), parameter :: Pi = 3.141592653589793238d0, phi = 0.05542d0, &
          degrad = Pi/180.d0
-    real (kind=8) :: phir
+    real (kind=8) :: phir, posout(3)
 
     phir    = phi/3600d0*degrad
 
-    call RotX(-epsilon, posecl, poseq)
+    call RotX(-epsilon, posecl, posout)
 
-    call RotZ(phir, poseq, poseq)
+    call RotZ(phir, posout, poseq)
 
     return
   end subroutine ecl_equ
@@ -371,7 +370,7 @@ contains
          drad = Pi/180.d0, mu = TwoPi**2
     type(t_orb_m) :: o_md
     type(t_v3d) :: posi, poso, veli, velo
-    real (kind=8) ::  aid, eid, iid, noid, peid, mid
+!    real (kind=8) ::  aid, eid, iid, noid, peid, mid
 
     o_md%a = o_mi%a
     o_md%e = o_mi%e
@@ -760,9 +759,10 @@ contains
 
 ! Internal variables
     real (kind=8) :: ci0(4), ci1(3), ci2(3), ci3(3), co0(3), co1(3), co2(5), &
-         co3(5), alpha, beta, gamma, delta, om_lim_low, om_lim_high, damp, y
+         co3(5), alpha, beta, gamma, delta, damp, y
     real (kind=8), parameter :: epsilon = 5713.86d0/3600.d0, &
          omega = 387390.8d0/3600.d0, ce_damp = 16.d0, wi_damp = 6.d0
+    real (kind=8) om_lim_low, om_lim_high
 
     data &
          ci0 /-0.115657583d0,34.8097343d0,7.79198557d-02,-1.06252408d0/, &

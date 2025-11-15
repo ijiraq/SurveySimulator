@@ -183,7 +183,7 @@ contains
     integer, intent(out) :: ierr
     real (kind=8), intent(in) :: t
     real (kind=8), intent(out) :: r
-    type(t_v3d) :: pos_b, vel_b
+    type(t_v3d) :: pos_b, vel_b, vel_b_rot, pos_b_rot
     integer :: istat
     real (kind=8), parameter :: km2AU = 149597870.691d0
     real (kind=8) :: v_pos(3)
@@ -209,8 +209,12 @@ contains
           write(0,*) "Failed while reading JPL Ephem for time ",t," using LUN: ",-1*code
           return 
        end if
+       ! if we are working in JPL coords then we don't need to rotate to Ecliptic 
+       r = dsqrt((pos%x + pos_b%x)**2 + (pos%y + pos_b%y)**2 &
+           + (pos%z + pos_b%z)**2)
+       return 
     else
-       
+! use observatory code value to determine location.       
 ! Get heliocentric position of Earth.
        call newcomb (t, v_pos)
        pos%x = -v_pos(1)
@@ -221,31 +225,32 @@ contains
        vel%z = 0.d0
 
 ! Convert barycenter position to Equatorial.
-       call equat_ecl (-1, pos_b, pos_b, ierr)
+       call equat_ecl (-1, pos_b, pos_b_rot, ierr)
        if (ierr .ne. 0) then
           write (6, *) 'Problem in conversion ecliptic -> equatorial'
        end if
-       call equat_ecl (-1, vel_b, vel_b, ierr)
+       call equat_ecl (-1, vel_b, vel_b_rot, ierr)
        if (ierr .ne. 0) then
           write (6, *) 'Problem in conversion ecliptic -> equatorial'
        end if
 
+
 ! Now move to barycenter.
-       pos%x = pos%x - pos_b%x
-       pos%y = pos%y - pos_b%y
-       pos%z = pos%z - pos_b%z
-       vel%x = vel%x - vel_b%x
-       vel%y = vel%y - vel_b%y
-       vel%z = vel%z - vel_b%z
+       pos%x = pos%x - pos_b_rot%x
+       pos%y = pos%y - pos_b_rot%y
+       pos%z = pos%z - pos_b_rot%z
+       vel%x = vel%x - vel_b_rot%x
+       vel%y = vel%y - vel_b_rot%y
+       vel%z = vel%z - vel_b_rot%z
        if (code .eq. 500) then
        else
           ierr = 10
           return
        end if
+    ! Finally, computes distance from observatory to Sun.
+    r = dsqrt((pos%x + pos_b_rot%x)**2 + (pos%y + pos_b_rot%y)**2 &
+         + (pos%z + pos_b_rot%z)**2)
     end if
-! Finally, computes distance from observatory to Sun.
-    r = dsqrt((pos%x + pos_b%x)**2 + (pos%y + pos_b%y)**2 &
-         + (pos%z + pos_b%z)**2)
 
   end subroutine ObsPos
 

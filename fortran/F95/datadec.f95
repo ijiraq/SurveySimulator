@@ -1,6 +1,7 @@
 module datadec
 
   use poly_dec
+  use common_data
 
   ! define length of array parameters
   integer, parameter :: n_sur_max = 2000, n_bin_max=30, n_r_max=10, &
@@ -17,8 +18,8 @@ module datadec
 
 
   ! Internal variables
-  real (kind=8) :: om_lim_low, om_lim_high
-  common /om_lim_com/ om_lim_low, om_lim_high
+  ! real (kind=8) :: om_lim_low, om_lim_high
+  ! common /om_lim_com/ om_lim_low, om_lim_high
 
   ! define data type to represent survey efficiency and pointings, and objects
   type t_ratecut
@@ -64,4 +65,14 @@ module datadec
      type(t_polygon) :: poly
      type(t_charact) :: c
   end type t_pointing
+
+contains 
+
+  subroutine reset_simulator()
+          implicit none
+          first = .true.
+          iff = 0
+  end subroutine reset_simulator
+
+
 end module datadec

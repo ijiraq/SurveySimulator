@@ -7,20 +7,14 @@ module surveysub
   use getsur
   use ioutils
   use debug
+  use common_data
 
 contains
 
-  subroutine reset_simulator()
-          use common_data
-          first = .true.
-          iff = 0
-  end subroutine reset_simulator
-
   subroutine Detos1 (o_m, jday, hx, color, gb, ph, period, amp, surnam, seed, &
-          debug, &
+          debug_on, &
        flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
        jdayp, ic, surna, h_rand, ierr)
-        use common_data
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
 ! This routine determines if a given object is seen by the survey
 ! described in the directory \verb|surnam|.
@@ -91,7 +85,7 @@ contains
 !f2py intent(in) amp
 !f2py intent(in) surnam
 !f2py intent(in) seed
-!f2py intent(in) debug
+!f2py intent(in) debug_on
 !f2py intent(out) flag
 !f2py intent(out) ra
 !f2py intent(out) dec
@@ -116,7 +110,7 @@ contains
     integer, intent(inout) :: seed
     integer, intent(out) :: flag
     integer, intent(out) :: isur, ic, ierr
-    logical, intent(in) :: debug
+    logical, intent(in) :: debug_on
 
     real (kind=8), intent(in) :: jday, hx, color(:), gb, ph, period, amp
     real (kind=8), intent(out) :: ra, dec, d_ra, d_dec, r, delta, m_int, &
@@ -133,14 +127,14 @@ contains
     type(t_polygon), save :: poly
     type(t_pointing), save :: points(n_sur_max)
     real (kind=8), save :: h, alpha, r2, ra2, dec2, sur_mmag(n_sur_max), &
-         mag_err(6), photf(3), maglim, width, height, ra_p, dec_p, ff, &
+         mag_err(6), photf(3), maglim, ff, &
          mag_max, mag_faint, random, track, jday_o, tmp, &
-         eff_lim, r_min, r_max, ang, ang_w, track_max, track_mag, &
+         eff_lim, track_max, track_mag, &
          track_slope, angle, rate, delta2, mag_peri, dmag, &
          p(2), ra_l, dec_l, d_ra_l, d_dec_l, r_l, delta_l, &
-         m_int_l, m_rand_l, eff_l, mt_l
+         m_int_l, m_rand_l, eff_l
     integer, save :: i, filt_i, flag_l, n_sur, &
-         incode, outcod, i_sur, nph
+         incode, outcod, i_sur
     character(13), save :: stra, stdec
     integer :: in_poly
     logical, save :: newpos, rate_ok
@@ -151,7 +145,7 @@ contains
 
     flag = 0
     flag_l = 0
-    call debug_set(debug)
+    call debug_set(debug_on)
 
     if (first) then
        first = .false.
@@ -247,7 +241,7 @@ contains
                 jday_o = obspos(1)%jday
                 newpos = .true.
              end if
-             if (debug_level() > 1) then
+             if (debug_lvl > 1) then
                 write (log_msg, *) 'Survey: ', i_sur
                 call dbg_print(2, log_msg)
                 write (log_msg, *) 'Target x/y/z location, epoch of elements, epoch of observation'
@@ -285,7 +279,7 @@ contains
              end if
 
 ! Format angles for output
-             if (debug_level() > 1) then 
+             if (debug_lvl > 1) then 
                 incode = 1
                 outcod = 1
                 call Format (ra_l, incode, outcod, stra, ierr)
@@ -322,7 +316,7 @@ contains
 !
 ! Here we use polygons.
                 in_poly = point_in_polygon(p, poly)
-                if (debug_level()>1) then
+                if (debug_lvl>1) then
                    write (log_msg, *) 'Check for FOV.'
                    call dbg_print(2, log_msg)
 
@@ -337,7 +331,7 @@ contains
 
 ! Check for chip gaps, ..., the filling factor.
                    random = ran3(seed)
-                   if (debug_level() > 1 ) then
+                   if (debug_lvl > 1 ) then
                       write (log_msg, *) &
                            'In FOV of survey. Check filling factor.'
                       call dbg_print(2, log_msg)
@@ -353,7 +347,7 @@ contains
                       call pos_cart (o_ml, pos2)
                       call DistSunEcl (obspos(2)%jday, pos2, r2)
                       call RADECeclXV (pos2, obspos(2)%pos, delta2, ra2, dec2)
-                      if (debug_level()>1) then
+                      if (debug_lvl > 1) then
                          write (log_msg, *) 'Check for second position.'
                          call dbg_print(2, log_msg)
                          write (log_msg, *) o_ml%m
@@ -376,7 +370,7 @@ contains
                       rate_ok = (rate .ge. rc%min) .and. (rate .le. rc%max)
                       rate_ok = rate_ok .and. &
                            (dabs(rc%angle - angle) .le. rc%hwidth)
-                      if (debug_level()>1) then
+                      if (debug_lvl > 1) then
                          write (log_msg, *) 'Check for rate.'
                          call dbg_print(2, log_msg)
                          write (log_msg, *) 'object rate, survey rate, min, max'
@@ -430,7 +424,7 @@ contains
                             random = ran3(seed)
                             track = min(track_max, &
                                  1.d0 + (m_rand_l - track_mag)*track_slope)
-                            if (debug_level()>1) then
+                            if (debug_lvl > 1) then
                                write (log_msg, *) &
                                     'Checking for track if object was tracked: ', random, track
                                call dbg_print(2, log_msg)
