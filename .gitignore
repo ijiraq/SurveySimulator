@@ -20,3 +20,4 @@ fortran/F95/bdir/
 .python-version
 uv.lock
 bdir
+.vscode
