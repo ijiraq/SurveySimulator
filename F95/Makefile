@@ -68,7 +68,7 @@ test:
 
 clean: rmtmp
 	rm -f _$(MODULE)*.so _$(GOBJ)*.so  _$(IOBJ)*.so _$(ROBJ)*.so Driver GiMeObj.f95
-	rm -rf meson
+	rm -rf meson libsrc.a
 
 rmtmp:
 	rm -f *~ *.o *.mod *.fpp f90wrap*f90 SimulDetect.dat SimulTrack.dat

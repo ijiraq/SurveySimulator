@@ -12,7 +12,7 @@ authors = [
     {name = "J.M. Petit", email = "jmpetit@obs-besacon.fr" },
     {name = "J.J. Kavelaars", email = "jjkavelaars@gmail.com" }
 ]
-license = "CC0-1.0"
+license = "EUPL-1.1"
 dependencies = []
 
 [project.urls]
