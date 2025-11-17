@@ -56,7 +56,7 @@ GIMEOBJ ?= InnerHotModel
 all: $(MODULE)
 
 test: 
-	$(MAKE) -s -C ../tests test LANGUAGE=F95
+	$(MAKE) -s -C tests test LANGUAGE=F95
 
 %.fpp :	%.f95
 	$(FPP) $< -o $@
