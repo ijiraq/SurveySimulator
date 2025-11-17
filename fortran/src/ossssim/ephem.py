@@ -4,7 +4,7 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.units import Quantity
 
-from .lib import SurveySubsF95
+import ossssimlib
 from . import definitions
 
 T_ORB_M_UNITS = definitions.T_ORB_M_UNITS
@@ -40,7 +40,7 @@ class Ephem:
         Take a row of elements and pack into form suitable to be sent to the F95 routines.
         """
         if self._o_m is None:
-            self._o_m = SurveySubsF95.datadec.t_orb_m()
+            self._o_m = ossssim.datadec.t_orb_m()
             row = dict(self.row)
             for colname in row:
                 if hasattr(self._o_m, colname.lower()):
@@ -54,16 +54,16 @@ class Ephem:
     @property
     def obspos(self) -> list:
         if self._obspos is None:
-            self._obspos, vel, self._r, ierr = SurveySubsF95.xvutils.obspos(self.code,
+            self._obspos, vel, self._r, ierr = ossssim.xvutils.obspos(self.code,
                                                                             self.epoch)
         return self._obspos
 
     @property
     def coord(self) -> SkyCoord:
         if self._coord is None:
-            pos = SurveySubsF95.elemutils.pos_cart(self.o_m)
+            pos = ossssim.elemutils.pos_cart(self.o_m)
             r = math.sqrt(pos.x**2 + pos.y**2 + pos.z**2)
-            delta, ra, dec = SurveySubsF95.numutils.radececlxv(pos, self.obspos)
+            delta, ra, dec = ossssim.numutils.radececlxv(pos, self.obspos)
             return SkyCoord(ra,
                             dec,
                             distance=r,

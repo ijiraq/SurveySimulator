@@ -9,7 +9,7 @@ from astropy.table import Row
 from astropy.time import Time
 
 from .color import PhotSpec
-from .lib import SurveySubsF95
+import ossssimlib
 import rebound
 import os
 import numpy
@@ -114,7 +114,7 @@ class OSSSSim:
         self.characterization_directory = characterization_directory
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
         self.seed = seed 
-        SurveySubsF95.Surveysub.reset_simulator()
+        ossssimlib.surveysub.reset_simulator()
 
 
     def simulate(self, row: dict, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
@@ -178,7 +178,7 @@ class OSSSSim:
             logging.warning('seed is now set in the constructor. ignored here')
 
         # pack the orbit into a t_orb_m object to pass to fortran module.
-        o_m = SurveySubsF95.datadec.t_orb_m()
+        o_m = ossssimlib.datadec.t_orb_m()
         row = dict(row)
         for colname in row:
             if hasattr(o_m, colname.lower()):
@@ -209,7 +209,7 @@ class OSSSSim:
         row['flag'], row['RA'], row['DEC'], row['d_ra'], row['d_dec'], row['r'], row['delta'], \
             row['m_int'], row['m_rand'], row['eff'], isur, row['Mt'], jdayp, ic, row['Survey'], \
             row['h_rand'], ierr = \
-            SurveySubsF95.Surveysub.detos1(o_m,
+            ossssimlib.surveysub.detos1(o_m,
                                            epoch_jd,
                                            H,
                                            color_offset_array,
