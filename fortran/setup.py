@@ -10,7 +10,7 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).parent.resolve()
-FORTRAN_DIR = ROOT / "src/F95"
+FORTRAN_DIR = ROOT / "F95"
 make = shutil.which('make')
 LOG_FILE = open(f"{ROOT.joinpath("log.txt")}", "w")
 
@@ -51,6 +51,6 @@ ext_modules = [
 setup(
     ext_modules=ext_modules,
     cmdclass={"build_ext": BuildExtWithMake},
-    package_dir={"": "src"},
+    package_dir={"": "python"},
     packages=["ossssim"],
 )
