@@ -7,14 +7,14 @@ LANGUAGE = F95
 test: clean $(MODELS) HST
 
 $(MODELS): clean
-	$(MAKE) -s -C ../$(LANGUAGE) Driver GIMEOBJ=$@ 
-	@./test.sh ../$(LANGUAGE)/$@ $(LANGUAGE) 
-	$(MAKE) -s -C ../$(LANGUAGE) clean
+	$(MAKE) -s -C ../src/$(LANGUAGE) Driver GIMEOBJ=$@ 
+	@./test.sh ../src/$(LANGUAGE)/$@ $(LANGUAGE) 
+	$(MAKE) -s -C ../src/$(LANGUAGE) clean
 
 HST: clean
-	$(MAKE) -s -C ../$(LANGUAGE) Driver GIMEOBJ=ReadModelFromFile
-	@./test.sh ../$(LANGUAGE)/$@ $(LANGUAGE) 
-	$(MAKE) -s -C ../$(LANGUAGE) clean
+	$(MAKE) -s -C ../src/$(LANGUAGE) Driver GIMEOBJ=ReadModelFromFile
+	@./test.sh ../src/$(LANGUAGE)/$@ $(LANGUAGE) 
+	$(MAKE) -s -C ../src/$(LANGUAGE) clean
 
 .PHONY: $(MODELS)
 

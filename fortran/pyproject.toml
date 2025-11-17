@@ -1,0 +1,19 @@
+[build-system]
+requires = ["meson-python", "setuptools>=68", "wheel", "f90wrap"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "OSSSurveySimulatorLibrary"
+version = "1.0"
+description = "Outer Solar System Survey Simulation Library written in F95 and distributed as a Python module."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "J.M. Petit", email = "jmpetit@obs-besacon.fr" },
+    {name = "J.J. Kavelaars", email = "jjkavelaars@gmail.com" }
+]
+license = "CC0-1.0"
+dependencies = []
+
+[project.urls]
+Homepage = "https://www.ossos-survey.org/simulator.html"
