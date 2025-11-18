@@ -101,4 +101,4 @@ $(MODULE): Makefile $(FPPM) libsrc.a
 	ln -s -f $(CURDIR)/*.mod meson/
 	f2py-f90wrap $(F2PYFLAGS) -c -m _$(MODULE) $(F90_WRAP_M) -lsrc -L$(CURDIR)  > f2py_f90wrap.log 2>&1
 	\rm f90wrap*.f90 *.fpp *.o *.mod
-	\rm -r meson
+	\rm -r meson libsrc.a
