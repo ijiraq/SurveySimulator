@@ -3,18 +3,35 @@ requires = ["meson-python", "setuptools>=68", "wheel", "f90wrap"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "OSSSurveySimulatorLibrary"
-version = "1.0"
-description = "Outer Solar System Survey Simulation Library written in F95 and distributed as a Python module."
+name = "OSSSurveySimulator"
+version = "2.0"
+description = "Outer Solar System Survey Simulation written in F95 with Python bindings."
 readme = "README.md"
-requires-python = ">=3.12"
 authors = [
     {name = "J.M. Petit", email = "jmpetit@obs-besacon.fr" },
     {name = "J.J. Kavelaars", email = "jjkavelaars@gmail.com" }
 ]
 license = "EUPL-1.2"
 license-files = ["LICENCE.txt"]
-dependencies = []
+dependencies = [
+    "astropy>=7.0",
+    "numpy>=2.3",
+    "matplotlib",
+    "pydantic",
+    "scipy",
+    "rebound",
+    "astroquery"
+]
+requires-python = ">=3.12"
+keywords = [
+   "astronomy",
+   "planetary",
+   "solar system",
+   "surveys",
+   "telescope",
+]
 
 [project.urls]
-Homepage = "https://www.ossos-survey.org/simulator.html"
+homepage = "https://www.ossos-survey.org/simulator.html"
+
+

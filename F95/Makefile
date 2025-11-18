@@ -36,9 +36,10 @@ FFLAGP	= -O3
 CFLAGS  = 
 CPPFLAGS = 
 LIBTOOL = ar src
-F2PYFLAGS = --build-dir meson --fcompiler=gfortran
-
+BUILD_DIR = meson
 KIND_MAP = kind_map
+F2PYFLAGS = --build-dir $(BUILD_DIR) --fcompiler=gfortran
+
 
 .PHONY: all clean
 
@@ -68,7 +69,7 @@ test:
 
 clean: rmtmp
 	rm -f _$(MODULE)*.so _$(GOBJ)*.so  _$(IOBJ)*.so _$(ROBJ)*.so Driver GiMeObj.f95
-	rm -rf meson libsrc.a
+	rm -rf $(BUILD_DIR) libsrc.a
 
 rmtmp:
 	rm -f *~ *.o *.mod *.fpp f90wrap*f90 SimulDetect.dat SimulTrack.dat
@@ -97,8 +98,8 @@ Modules: _$(MODULE).so Makefile
 
 $(MODULE): Makefile $(FPPM) libsrc.a
 	f90wrap -m $(MODULE) $(FPPM) -k $(KIND_MAP) -v -P > f90wrap.log 2>&1
-	mkdir -p meson
-	ln -s -f $(CURDIR)/*.mod meson/
+	mkdir -p $(BUILD_DIR) 
+	ln -s -f $(CURDIR)/*.mod $(BUILD_DIR)/
 	f2py-f90wrap $(F2PYFLAGS) -c -m _$(MODULE) $(F90_WRAP_M) -lsrc -L$(CURDIR)  > f2py_f90wrap.log 2>&1
-	\rm f90wrap*.f90 *.fpp *.o *.mod
-	\rm -r meson libsrc.a
+	\rm f90wrap*.f90 *.fpp *.o *.mod .f2py_f2cmap libsrc.a
+	\rm -r $(BUILD_DIR) 
