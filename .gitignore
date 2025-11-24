@@ -1,5 +1,6 @@
 .idea
 __pycache__
+__version__.py
 build
 OSSOSv11/
 OSSOSv11.tgz
