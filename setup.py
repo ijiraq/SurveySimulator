@@ -42,16 +42,7 @@ class BuildExtWithMake(build_ext):
         built_py.rename(target_path / built_py.name)
 
 
-ext_modules = [
-    # No sources: our build_ext copies in the prebuilt .so
-    Extension(ext_name, sources=[]),
-]
-
 setup(
-    ext_modules=ext_modules,
     cmdclass={"build_ext": BuildExtWithMake},
-    package_dir={"": "python"},
-    packages=["ossssim"],
-    license="EUPL-1.1"
 )
 
