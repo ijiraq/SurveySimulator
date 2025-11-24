@@ -403,7 +403,7 @@ contains
 !   where filters are in the order given in datadec.filters
      function color_array(colors)
         implicit none
-        real(kind=4) :: colors(128)
+        real(kind=4) :: colors(58)
         integer :: idx, ic
         real(kind=4), dimension(10) :: color_array
 ! For each character in string 'filters' look up the index

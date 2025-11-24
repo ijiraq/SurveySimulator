@@ -41,7 +41,7 @@ contains
 !     o_m   : orbital elements of object (t_orb_m)
 !     jday  : Time of elements [JD] (R8)
 !     hx    : Absolute magnitude of object in 'x' band, what ever this is (R8)
-!     color : Array of colors (128*R8)
+!     color : Array of colors (58*R8)
 !                IACHAR(FILTER)+1 : FILTER - X
 !     gb    : opposition surge factor G, Bowell formalism (R8)
 !     ph    : phase of lightcurve at epoch jday [rad] (R8)
@@ -114,7 +114,7 @@ contains
     integer, intent(out) :: isur, ic, ierr
     logical, intent(in) :: debug_on
 
-    real (kind=8), intent(in) :: jday, hx, color(128), gb, ph, period, amp
+    real (kind=8), intent(in) :: jday, hx, color(58), gb, ph, period, amp
     real (kind=8), intent(out) :: ra, dec, d_ra, d_dec, r, delta, m_int, &
          m_rand, eff, mt, jdayp, h_rand
     character(*), intent(in) :: surnam
