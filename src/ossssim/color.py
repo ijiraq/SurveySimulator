@@ -19,6 +19,7 @@ class PhotSpec:
                 colors(7) : B-x
                 colors(8) : R-x
                 colors(9) : I-x
+                colors(10) : w-x
 
     """
     OLD_BAND_ORDER = ['g', 'r', 'i', 'z', 'u', 'V', 'B', 'R', 'I']
@@ -110,13 +111,13 @@ class PhotSpec:
 
         This is used to create the list of colors that is passed into the Fortran component of SSim.
         """
-        spec_phot_list = numpy.zeros(ord('z')-ord('A')+2) * units.mag
+        spec_phot_list = numpy.zeros(ord('z')-ord('A')+1) * units.mag
         colors = self.transform_spectral_group_to_model_band(self.orbital_to_spectral_group(orbital_group), model_band)
         for band_ratio in colors:
             bandpass = band_ratio.split('-')[0]
             if not 0 <= ord(bandpass) < 128:
                 raise ValueError(f"Bandpass {bandpass} is out of range a-z, A-Z, 0-9")
-            spec_phot_list[ord(bandpass) - ord('A') + 1] = colors[band_ratio]
+            spec_phot_list[ord(bandpass) - ord('A')] = colors[band_ratio]
         return list(spec_phot_list.to('mag').value)
 
     @classmethod

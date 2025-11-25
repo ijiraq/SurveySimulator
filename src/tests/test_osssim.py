@@ -1,19 +1,23 @@
 import unittest
 from astropy.units import Quantity
 import ossssim
+from ossssim import Characterizations
 from tempfile import NamedTemporaryFile
+import pathlib
 
+script_directory = pathlib.Path(__file__).parent.resolve()
 
 class OSSSIMTest(unittest.TestCase):
     # def setUp(self):
 
     def test_simulate(self):
-        self.model = ossssim.ModelFile('data/test_model.dat')
-        result = ossssim.ModelFile('data/test_detect.dat')
+        self.model = ossssim.ModelFile(f"{script_directory}/data/test_model.dat")
+        result = ossssim.ModelFile(f"{script_directory}/data/test_detect.dat")
         self.result_row = next(iter(result))
         result.close()
         self.seed = int(result.header['Seed'][0])
-        self.osssim = ossssim.OSSSSim('data/Surveys/CFEPS')
+        self.osssim = ossssim.OSSSSim(characterization_directory=Characterizations.surveys['CFEPS'], 
+                                        seed=self.seed)
 
         with NamedTemporaryFile() as fobj:
             self.detect_filename = fobj.name
@@ -25,8 +29,8 @@ class OSSSIMTest(unittest.TestCase):
 
         # loop over the model file until we have a detection and then compare the detected row values to the test row
         for row in self.model:
-            result_row = self.osssim.simulate(row, seed=self.seed, epoch=self.model.epoch,
-                                              colors=self.model.colors, model_band=self.model.model_band_pass)
+            result_row = self.osssim.simulate(row, epoch=self.model.epoch,
+                                              colors=self.model.colors, model_band=self.model.model_band)
             if result_row['flag'] > 0:
                 temp_results.write_row(result_row)
                 for key in row:
@@ -38,7 +42,6 @@ class OSSSIMTest(unittest.TestCase):
                     self.assertAlmostEqual(test_value, result_value, 4)
                 break
         self.model.close()
-        temp_results.write_footer(n_iter=1, n_hits=1, n_track=0)
         results2 = ossssim.ModelFile(self.detect_filename)
         for row in results2:
             pass

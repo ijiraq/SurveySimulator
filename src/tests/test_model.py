@@ -3,11 +3,15 @@ Create a ring of objects representing theoretical populations of objects in the 
 
 When run as a script, uses CFEPS survey characterization, runs until 28 sources have been detected in this ring and plots the result.
 """
+import ossssim
 from ossssim.models import Parametric, Resonant
-from ossssim import OSSSSim, DetectFile, ModelFile, definitions, plotter, PhotSpec
+from ossssim import OSSSSim, DetectFile, PhotSpec, Characterizations
 from astropy import units
 import unittest
 from tempfile import NamedTemporaryFile
+import pathlib
+
+script_directory = pathlib.Path(__file__).parent.resolve()
 
 
 class Plutino(Resonant):
@@ -56,9 +60,10 @@ class Ring(Parametric):
 class ConfirmResonantTest(unittest.TestCase):
 
     def setUp(self):
-        self.characterization_directory = 'data/Surveys/CFEPS'
+        self.characterization_directory = Characterizations.surveys['CFEPS']
+        print(self.characterization_directory)
         self.model = Plutino(size=10000)
-        self.sim = OSSSSim(characterization_directory=self.characterization_directory)
+        self.sim = OSSSSim(characterization_directory=self.characterization_directory, seed=123456789)
 
     def test_semimajor_axis_limits(self):
         self.assertLess(self.model.a.max(), 39.95*units.au)
@@ -67,9 +72,9 @@ class ConfirmResonantTest(unittest.TestCase):
 
 class CreateModelFileTest(unittest.TestCase):
     def setUp(self):
-        characterization_directory = 'data/Surveys/CFEPS'
-        self.ssim = OSSSSim(characterization_directory=characterization_directory)
-        self.model = Ring(45*units.au, 1*units.au, seed=123456789, component='Ring', size=1, H_max=9)
+        self.characterization_directory = Characterizations.surveys['CFEPS']
+        self.ssim = OSSSSim(characterization_directory=self.characterization_directory,  seed=123456789)
+        self.model = Ring(45*units.au, 1*units.au, component='Ring', size=1, H_max=9)
         self.model_filename = NamedTemporaryFile().name
 
     def test_run(self):
@@ -83,7 +88,7 @@ class CreateModelFileTest(unittest.TestCase):
             self.assertAlmostEqual(row['inc'].value, 0.0)
             result = self.ssim.simulate(row,
                                         colors=model_file.colors,
-                                        model_band=model_file.model_band_pass,
+                                        model_band=model_file.model_band,
                                         seed=self.model.seed,
                                         epoch=self.model.epoch)
             model_file.write_row(result)

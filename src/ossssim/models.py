@@ -205,6 +205,9 @@ class ModelFile(Iterable, ABC):
                 cls = ModelFileOld
         return super().__new__(cls)
 
+    def close(self):
+        self._f_obj.close()
+
 
 class ModelFileOld(ModelFile):
     """
@@ -228,9 +231,6 @@ class ModelFileOld(ModelFile):
         self.f_loc = 0
         self._targets = None
         self._f = None
-
-    def close(self):
-        self._f_obj.close()
 
     @property
     def epoch(self) -> Time:
