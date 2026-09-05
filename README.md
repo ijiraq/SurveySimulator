@@ -22,14 +22,11 @@ eupl1.1.-licence-en_0.pdf (detailed description of the licence).
 This source code is provided as is, with no warranty of any kind.  The user takes full responsiblity for any damage to system, and
 for any scientific conclusion drawn.
 
-
 ### Contact
 The primary contact for the Survey Simulator code is:  
 * Jean-Marc Petit: Jean-Marc.Petit@normalesup.org
 
-
 ### Acknowledgement
-  
 
 Cite **Petit, J.-M., et al., AJ, Vol 142 ID 131 (2011)** if you make 
 use of the SurveySimulator, or the CFEPS L7SyntheticModel-v09 Kuiper belt model.
@@ -127,11 +124,85 @@ See Simulator/F95/fortran/example or Simulator/F77/fortan/example for examples o
 to compile (e.g. `make InnerHotModel`) a survey simulator.
 
 ### Simulator/
+
+#### Simulator/fortran/{F95|F77}/SurevySubs.f
+This contains the source code for the Survey Simulator.  in particular Detos1 which determines, based on
+the given orbit and the survey characterization area, which sources are detected.
+
+The Detos1 subrouting is described in the source code but reproduced here to make you aware of the inputs and outputs.
+
+```fortran
+
+subroutine Detos1 (o_m, jday, hx, color, gb, ph, period, amp, surnam, seed, &
+          debug, &
+       flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
+       jdayp, ic, surna, h_rand, ierr)
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+! This routine determines if a given object is seen by the survey
+! described in the directory \verb|surnam|.
+! An object is described by its ecliptic (J2000) barycentric osculating
+! elements given at time \verb|jday|.
+! This version uses polygons to describe the footprint of the block on
+! the sky.
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+!
+! J.-M. Petit  Observatoire de Besancon
+! Version 1 : January 2006
+! Version 2 : May 2013
+! Version 3 : March 2016
+! Version 4 : May 2016
+!             Changed API to remove size of arrays, added parameter
+!             statement to define array sizes (in include file).
+!             Continue looping on pointings until object is detected,
+!             characterized and tracked. Don't stop at first detection.
+!
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+! INPUT
+!     o_m   : orbital elements of object (t_orb_m)
+!     jday  : Time of elements [JD] (R8)
+!     hx    : Absolute magnitude of object in 'x' band, what ever this is (R8)
+!     color : Array of colors (128*R8)
+!                IACHAR(FILTER)+1 : FILTER - X
+!     gb    : opposition surge factor G, Bowell formalism (R8)
+!     ph    : phase of lightcurve at epoch jday [rad] (R8)
+!     period: period of lightcurve [day] (R8)
+!     amp   : amplitude of lightcurve [mag] (R8)
+!     surnam: Survey directory name (CH)
+!
+! OUTPUT
+!     seed  : Random number generator seed (I4)
+!     flag  : Return flag (I4): 
+!                0: not found 
+!                1: found, but not tracked
+!                2: found and tracked
+!                3: characterized, but not tracked
+!                4: characterized and tracked
+!     ra    : Right ascension at detection [rad] (R8)
+!     dec   : Declination at detection [rad] (R8)
+!     d_ra  : Right ascension rate [rad/day] (R8)
+!     d_dec : Declination rate [rad/day] (R8)
+!     r     : Sun-object distance [AU] (R8)
+!     delta : Earth-object distance [AU] (R8)
+!     m_int : Intrinsic apparent magnitude, in x-band (R8)
+!     m_rand: Averaged randomized magnitude, in detection filter (R8)
+!     eff   : Actual efficiency of detection (R8)
+!     isur  : Identification number of survey the object was in (I4)
+!     mt    : Mean anomaly at discovery [rad] (R8)
+!     jdayp : Time of discovery [JD] (R8)
+!     ic    : Index of color used for survey (I4)
+!     surna : Detection survey name (CH10)
+!     h_rand: Absolute randomized magnitude, in detection filter (R8)
+!     ierr  : error flag
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+'''
+  
+```
 #### Simulator/{F95|F77}/fortran/ReadModelFromFile.f 
 This contains the source code for a "GiMeObj" routine that reads 
 an (orbital+size+colour+lightcurve) model from a file (lookup table).
 Use `make ReadModelFromFile` to build a `Driver` program that can be used 
 to run simulation of observing the Kuiper belt model described in `ReadModelFromFile.f`. 
+
 #### Simulator/{F95|F77}/fortran/InnerHotModel.f 
 Contains the source code for a GiMeObj routine that generates
 objects according to some parametric prescription. 

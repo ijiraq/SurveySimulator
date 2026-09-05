@@ -2,7 +2,7 @@
 REPO = images.canfar.net
 PROJECT = uvickbos
 DEVNAME = ssim
-VERSION = python
+VERSION := $(shell python -m setuptools_scm --strip-dev)
 
 NAME = $(REPO)/$(PROJECT)/$(DEVNAME)
 
@@ -14,6 +14,7 @@ deploy: production
 
 dev: dependencies Dockerfile
 	docker build --target test --build-arg VERSION=$(VERSION) -t $(NAME):$(VERSION) -f Dockerfile .
+	echo "docker run --rm -it -p 8888:8888 $(NAME):$(VERSION) bash"
 
 dependencies: 
 
