@@ -47,21 +47,21 @@ RUN pip install canfar
 
 
 # Build the SSim
-RUN mkdir -p /opt/SSim/fortran
-COPY fortran /opt/SSim/fortran
-COPY python /opt/SSim/python
-WORKDIR /opt/SSim/fortran/F95
+RUN mkdir -p /opt/SSim
+COPY ./ /opt/SSim/
+# COPY src /opt/SSim/python
+WORKDIR /opt/SSim/F95
 
 # install Fortran based binary of SSim
-RUN make clean && make Driver GIMEOBJ=ReadModelFromFile
+RUN make clean && ls && make Driver GIMEOBJ=ReadModelFromFile
 RUN cp Driver /usr/local/bin/SSim
 # RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections 
 # RUN apt-get install -y ttf-mscorefonts-installer
 
 # install the Python based version of SSim
 FROM base as deploy
-WORKDIR /opt/SSim/python
-# RUN pip install .
+WORKDIR /opt/SSim/
+RUN pip install .
 # RUN python setup.py install
 
 # Two build sets, deploy and test
@@ -71,7 +71,7 @@ RUN mkdir -p /arc/home
 RUN groupadd -g 1001 testuser
 RUN useradd -u 1001 -g 1001 -s /bin/bash -d /arc/home/testuser -m testuser
 RUN chown -R testuser /opt/SSim
-WORKDIR /opt/SSim/python
+WORKDIR /opt/SSim/
 # RUN pip3 install -e .
 USER testuser
 WORKDIR /arc/home/testuser
