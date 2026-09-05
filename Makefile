@@ -2,7 +2,7 @@
 REPO = images.canfar.net
 PROJECT = uvickbos
 DEVNAME = ssim
-VERSION = 3.0
+VERSION := $(shell python -m setuptools_scm --strip-dev)
 
 NAME = $(REPO)/$(PROJECT)/$(DEVNAME)
 
