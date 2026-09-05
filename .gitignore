@@ -12,6 +12,8 @@ OSSOSv11.tgz
 *.o
 *.fpp
 *.mod
+F95/Driver
+F95/GiMeObj.f95
 *.icloud
 dist
 Rebound_Archive*.bin
