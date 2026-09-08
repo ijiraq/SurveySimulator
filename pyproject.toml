@@ -46,3 +46,9 @@ ext-modules = [
 
 [tool.setuptools_scm]
 version_file = "src/ossssim/__version__.py"
+fallback_version = "2.0.0"
+
+# Ignore legacy non-PEP440 tags such as SurveySim11 / FirstQuarterPaper.
+# Prefer dotted tags (v2.0.0, 2025.2, …).
+[tool.setuptools_scm.tag]
+strict = true
