@@ -1,5 +1,14 @@
 [build-system]
-requires = ["setuptools>=68", "wheel", "f90wrap", "setuptools-scm>=8"]
+# Python>=3.12 / NumPy>=2: f2py-f90wrap compiles via meson+ninja (not distutils).
+requires = [
+    "setuptools>=68",
+    "wheel",
+    "numpy>=2",
+    "f90wrap",
+    "meson",
+    "ninja",
+    "setuptools-scm>=8",
+]
 build-backend = "setuptools.build_meta"
 
 [project]

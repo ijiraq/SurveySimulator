@@ -25,8 +25,16 @@ class BuildExtWithMake(build_ext):
     def run(self):
         # 1. Run make to build the Fortran-based extension
         module_name = ext_name.split(".")[-1]   # "simsubs"
-        subprocess.check_call([make, f"MODULE={module_name}"], cwd=FORTRAN_DIR)
-        
+        try:
+            subprocess.check_call([make, f"MODULE={module_name}"], cwd=FORTRAN_DIR)
+        except subprocess.CalledProcessError:
+            for name in ("f2py_f90wrap.log", "f90wrap.log"):
+                log = FORTRAN_DIR / name
+                if log.is_file():
+                    print(f"==== {log} ====", file=sys.stderr)
+                    print(log.read_text(errors="replace"), file=sys.stderr)
+            raise
+
         # 2. Continue normal extension build process
         super().run()
 

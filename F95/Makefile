@@ -25,8 +25,9 @@ MODULE	?= ossssimlib
 GOBJ	= GiMeObjF95
 
 
-FC	= gfortran
-FPP	= gfortran -E -x f95-cpp-input -fPIC -DPYTHON
+# FC is read by NumPy's meson f2py backend (Python>=3.12); --fcompiler is ignored there.
+FC	?= gfortran
+FPP	= $(FC) -E -x f95-cpp-input -fPIC -DPYTHON
 # FPP_F90FLAGS = -x f95-cpp-input -fPIC
 
 
@@ -35,9 +36,10 @@ FFLAGP	= -O3
 CFLAGS  = 
 CPPFLAGS = 
 LIBTOOL = ar src
-BUILD_DIR = meson
+# Temporary tree for numpy.f2py's meson backend (not a project-level Meson build).
+BUILD_DIR = f2py_build
 KIND_MAP = kind_map
-F2PYFLAGS = --build-dir $(BUILD_DIR) --fcompiler=gfortran
+F2PYFLAGS = --build-dir $(BUILD_DIR)
 
 
 .PHONY: all clean
@@ -99,6 +101,8 @@ $(MODULE): Makefile $(FPPM) libsrc.a
 	f90wrap -m $(MODULE) $(FPPM) -k $(KIND_MAP) -v -P > f90wrap.log 2>&1
 	mkdir -p $(BUILD_DIR) 
 	ln -s -f $(CURDIR)/*.mod $(BUILD_DIR)/
-	f2py-f90wrap $(F2PYFLAGS) -c -m _$(MODULE) $(F90_WRAP_M) -lsrc -L$(CURDIR)  > f2py_f90wrap.log 2>&1
+	# Surface the real compiler error; pip only shows make's exit status otherwise.
+	f2py-f90wrap $(F2PYFLAGS) -c -m _$(MODULE) $(F90_WRAP_M) -lsrc -L$(CURDIR) > f2py_f90wrap.log 2>&1 \
+		|| { echo "==== f2py_f90wrap.log ===="; cat f2py_f90wrap.log; exit 1; }
 	\rm f90wrap*.f90 *.fpp *.o *.mod .f2py_f2cmap libsrc.a
 	\rm -r $(BUILD_DIR) 
