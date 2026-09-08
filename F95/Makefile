@@ -110,23 +110,28 @@ Modules: _$(MODULE).so Makefile
 	echo "Modules have been built"
 
 $(MODULE): Makefile $(FPPM) libsrc.a
+	# Wipe any prior f2py/meson tree so we never reuse deleted /tmp/pip-build-env-* paths.
+	rm -rf $(BUILD_DIR)
 	f90wrap -m $(MODULE) $(FPPM) -k $(KIND_MAP) -v -P > f90wrap.log 2>&1
 	mkdir -p $(BUILD_DIR)
 	# .mod files must be visible from f2py's bbdir (sibling of these symlinks).
 	ln -s -f $(CURDIR)/*.mod $(BUILD_DIR)/
 	# Surface the real compiler/linker error; pip only shows make's exit status otherwise.
+	# Prefer f2py_f90wrap.log (ninja) over meson-log.txt (configure-only, often stale).
 	f2py-f90wrap $(F2PYFLAGS) -c -m _$(MODULE) $(F90_WRAP_M) -L$(CURDIR) -lsrc > f2py_f90wrap.log 2>&1 \
 		|| { \
-			echo "==== f2py_f90wrap.log ===="; cat f2py_f90wrap.log; \
-			if [ -f $(BUILD_DIR)/bbdir/meson-logs/meson-log.txt ]; then \
-				echo "==== $(BUILD_DIR)/bbdir/meson-logs/meson-log.txt ===="; \
-				cat $(BUILD_DIR)/bbdir/meson-logs/meson-log.txt; \
-			fi; \
+			echo "==== f2py_f90wrap.log (last 80 lines) ===="; \
+			tail -n 80 f2py_f90wrap.log; \
 			if [ -d $(BUILD_DIR)/bbdir ]; then \
 				echo "==== meson compile -C $(BUILD_DIR)/bbdir -v ===="; \
 				meson compile -C $(BUILD_DIR)/bbdir -v || true; \
+			fi; \
+			if [ -f $(BUILD_DIR)/bbdir/meson-logs/meson-log.txt ]; then \
+				echo "==== meson-log.txt (last 40 lines) ===="; \
+				tail -n 40 $(BUILD_DIR)/bbdir/meson-logs/meson-log.txt; \
 			fi; \
 			exit 1; \
 		}
 	\rm f90wrap*.f90 *.fpp *.o *.mod .f2py_f2cmap libsrc.a
 	\rm -r $(BUILD_DIR) 
+

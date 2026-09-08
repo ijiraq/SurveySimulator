@@ -23,20 +23,21 @@ ext_name = "ossssimlib"
 
 class BuildExtWithMake(build_ext):
     def run(self):
+        # Drop stale f2py/meson tree so meson never reuses deleted /tmp/pip-build-env-* paths.
+        f2py_build = FORTRAN_DIR / "f2py_build"
+        if f2py_build.is_dir():
+            remove_tree(str(f2py_build), verbose=True)
+
         # 1. Run make to build the Fortran-based extension
         module_name = ext_name.split(".")[-1]   # "simsubs"
         try:
             subprocess.check_call([make, f"MODULE={module_name}"], cwd=FORTRAN_DIR)
         except subprocess.CalledProcessError:
-            for name in (
-                "f2py_f90wrap.log",
-                "f90wrap.log",
-                "f2py_build/bbdir/meson-logs/meson-log.txt",
-            ):
-                log = FORTRAN_DIR / name
-                if log.is_file():
-                    print(f"==== {log} ====", file=sys.stderr)
-                    print(log.read_text(errors="replace"), file=sys.stderr)
+            log = FORTRAN_DIR / "f2py_f90wrap.log"
+            if log.is_file():
+                lines = log.read_text(errors="replace").splitlines()
+                print(f"==== {log} (last 100 lines) ====", file=sys.stderr)
+                print("\n".join(lines[-100:]), file=sys.stderr)
             raise
 
         # 2. Continue normal extension build process
