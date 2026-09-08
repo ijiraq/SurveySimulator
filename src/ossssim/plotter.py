@@ -21,6 +21,7 @@ from numpy.random import default_rng
 from . import definitions
 from .models import ModelFile
 from .models import Parametric
+from .pos_cart import pos_cart
 from .survey import SurveyCharacterization
 
 np = numpy
@@ -65,6 +66,48 @@ def _wedge_width_from_area(area_deg2: float) -> Quantity:
     """Approximate RA wedge width from spherical area (square-equivalent)."""
     side = float(numpy.sqrt(max(area_deg2, 0.0)))
     return side * units.deg
+
+
+def _ensure_cartesian_table(table):
+    """
+    Return a table that has heliocentric ecliptic ``x,y,z``.
+
+    Detect/parametric outputs already store Rebound state vectors. Lookup-table
+    models (e.g. L7) only have Keplerian elements; convert with the Python
+    ``pos_cart`` port of Fortran ``elemutils.pos_cart`` (not currently
+    f90wrap-exported — only datadec/ioutils/surveysub are wrapped).
+    """
+    if all(name in table.colnames for name in ('x', 'y', 'z')):
+        return table
+    required = ('a', 'e', 'inc', 'node', 'peri', 'M')
+    missing = [name for name in required if name not in table.colnames]
+    if missing:
+        raise KeyError(
+            "RosePlot.add_model needs cartesian columns x,y,z or Keplerian "
+            f"elements {required}; missing {missing}"
+        )
+
+    def _col(name, unit=None):
+        col = table[name]
+        if unit is not None and hasattr(col, 'to'):
+            return numpy.asarray(col.to(unit).value, dtype=float)
+        if hasattr(col, 'value'):
+            return numpy.asarray(col.value, dtype=float)
+        return numpy.asarray(col, dtype=float)
+
+    xyz = pos_cart(
+        _col('a', 'au'),
+        _col('e'),
+        _col('inc', 'rad'),
+        _col('node', 'rad'),
+        _col('peri', 'rad'),
+        _col('M', 'rad'),
+    )
+    out = table.copy()
+    out['x'] = xyz[0] * units.au
+    out['y'] = xyz[1] * units.au
+    out['z'] = xyz[2] * units.au
+    return out
 
 
 class TimeSeriesPlot:
@@ -297,19 +340,25 @@ class RosePlot:
 
     def add_model(self, model: ModelFile, mc: str = 'k', ms: float = 1.,
                   sample_size: int = None, alpha: float = 1.0) -> None:
-        """Scatter model objects using cartesian ``x,y,z`` columns."""
-        coord = SkyCoord(model.table['x'], model.table['y'], model.table['z'],
+        """
+        Scatter model objects on the face-down plot.
+
+        Uses ``x,y,z`` when present (detect / parametric outputs). For
+        element-only model files, fills those columns via Keplerian ``pos_cart``.
+        """
+        table = model.table
+        n = len(table)
+        if sample_size is not None and sample_size < n:
+            rng = default_rng()
+            table = table[rng.integers(0, n, sample_size)]
+        table = _ensure_cartesian_table(table)
+
+        coord = SkyCoord(table['x'], table['y'], table['z'],
                          representation_type='cartesian',
                          frame='heliocentrictrueecliptic', obstime='2000-01-01').transform_to(self.frame)
 
-        if sample_size is None:
-            choice = numpy.arange(len(coord))
-        else:
-            rng = default_rng()
-            choice = rng.integers(0, len(model.table), sample_size)
-
-        self.ax1.plot(coord.lon.to('rad').value[choice],
-                      coord.distance.to('au').value[choice],
+        self.ax1.plot(coord.lon.to('rad').value,
+                      coord.distance.to('au').value,
                       f'.{mc}',
                       markersize=ms,
                       alpha=alpha)

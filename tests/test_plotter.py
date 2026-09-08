@@ -13,7 +13,7 @@ from astropy import units as u
 from astropy.table import QTable
 from astropy.time import Time
 
-from ossssim.plotter import RosePlot, _as_time, _wedge_width_from_area
+from ossssim.plotter import RosePlot, _as_time, _wedge_width_from_area, _ensure_cartesian_table
 
 script_directory = pathlib.Path(__file__).parent.resolve()
 CFEPS = script_directory / 'data' / 'Surveys' / 'CFEPS'
@@ -55,6 +55,40 @@ class TestRosePlotSmoke(unittest.TestCase):
 
         plot = RosePlot(Time('2020-01-01'))
         plot.add_model(_Tiny(table), ms=2)
+        with tempfile.NamedTemporaryFile(suffix='.png') as tmp:
+            plot.savefig(tmp.name)
+
+    def test_ensure_cartesian_from_elements(self):
+        table = QTable({
+            'a': [40.0, 45.0] * u.au,
+            'e': [0.1, 0.0],
+            'inc': [10.0, 0.0] * u.deg,
+            'node': [0.0, 90.0] * u.deg,
+            'peri': [0.0, 0.0] * u.deg,
+            'M': [0.0, 180.0] * u.deg,
+        })
+        out = _ensure_cartesian_table(table)
+        for name in ('x', 'y', 'z'):
+            self.assertIn(name, out.colnames)
+            self.assertEqual(len(out[name]), 2)
+
+    def test_add_model_elements_only(self):
+        """Regression for examples/ploting.py KeyError on L7-style files."""
+        table = QTable({
+            'a': [40.0, 42.0, 44.0] * u.au,
+            'e': [0.05, 0.1, 0.0],
+            'inc': [5.0, 10.0, 0.0] * u.deg,
+            'node': [0.0, 45.0, 90.0] * u.deg,
+            'peri': [0.0, 10.0, 20.0] * u.deg,
+            'M': [0.0, 90.0, 180.0] * u.deg,
+        })
+
+        class _Tiny:
+            def __init__(self, table):
+                self.table = table
+
+        plot = RosePlot(Time('2020-01-01'))
+        plot.add_model(_Tiny(table), sample_size=2, ms=2)
         with tempfile.NamedTemporaryFile(suffix='.png') as tmp:
             plot.savefig(tmp.name)
 

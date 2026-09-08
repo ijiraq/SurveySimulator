@@ -1,5 +1,8 @@
 """
-Example: basic RosePlot of a model and detections.
+Example: basic RosePlot of a model file.
+
+Lookup-table models (e.g. L7) provide Keplerian elements only; RosePlot
+converts those to heliocentric x,y,z for plotting.
 """
 from pathlib import Path
 
