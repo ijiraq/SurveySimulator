@@ -5,7 +5,7 @@ Lookup-table models (e.g. L7) provide Keplerian elements only; RosePlot
 converts those to heliocentric x,y,z for plotting.
 """
 from pathlib import Path
-
+from matplotlib import pyplot as plt
 import ossssim
 from ossssim import plotter
 from astropy.time import Time
@@ -23,7 +23,8 @@ def run():
     plot_driver = plotter.RosePlot(epoch=Time(model.epoch))
     plot_driver.add_scale_rings()
     plot_driver.add_model(model, sample_size=10**4)
-    plot_driver.show()
+    # plot_driver.show()
+    plt.savefig('roseplot.png')
 
 
 if __name__ == '__main__':
