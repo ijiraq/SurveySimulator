@@ -28,7 +28,11 @@ class BuildExtWithMake(build_ext):
         try:
             subprocess.check_call([make, f"MODULE={module_name}"], cwd=FORTRAN_DIR)
         except subprocess.CalledProcessError:
-            for name in ("f2py_f90wrap.log", "f90wrap.log"):
+            for name in (
+                "f2py_f90wrap.log",
+                "f90wrap.log",
+                "f2py_build/bbdir/meson-logs/meson-log.txt",
+            ):
                 log = FORTRAN_DIR / name
                 if log.is_file():
                     print(f"==== {log} ====", file=sys.stderr)
