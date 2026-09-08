@@ -109,6 +109,7 @@ Modules: _$(MODULE).so Makefile
 	echo "Modules have been built"
 
 $(MODULE): Makefile $(FPPM) libsrc.a
+	# Force fresh .mod/.o visibility for f90wrap; stale debug.mod caused CANFAR clashes.
 	# Wipe any prior f2py/meson tree so we never reuse deleted /tmp/pip-build-env-* paths.
 	rm -rf $(BUILD_DIR)
 	f90wrap -m $(MODULE) $(FPPM) -k $(KIND_MAP) -v -P > f90wrap.log 2>&1

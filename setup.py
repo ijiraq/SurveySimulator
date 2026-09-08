@@ -23,10 +23,9 @@ ext_name = "ossssimlib"
 
 class BuildExtWithMake(build_ext):
     def run(self):
-        # Drop stale f2py/meson tree so meson never reuses deleted /tmp/pip-build-env-* paths.
-        f2py_build = FORTRAN_DIR / "f2py_build"
-        if f2py_build.is_dir():
-            remove_tree(str(f2py_build), verbose=True)
+        # Drop stale objects/mods and f2py/meson tree before every extension build.
+        # Stale debug.mod previously left f90wrap wrappers with ambiguous names.
+        subprocess.check_call([make, "clean"], cwd=FORTRAN_DIR)
 
         # 1. Run make to build the Fortran-based extension
         module_name = ext_name.split(".")[-1]   # "simsubs"
