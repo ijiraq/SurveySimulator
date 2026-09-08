@@ -51,7 +51,6 @@ F2PYFLAGS = --build-dir $(BUILD_DIR)
 export LIBRARY_PATH := $(CURDIR)$(if $(LIBRARY_PATH),:$(LIBRARY_PATH),)
 export LDFLAGS := -L$(CURDIR)$(if $(LDFLAGS), $(LDFLAGS),)
 export FCFLAGS := -I$(CURDIR)$(if $(FCFLAGS), $(FCFLAGS),)
-export FFLAGS := -I$(CURDIR)$(if $(FFLAGS), $(FFLAGS),)
 
 
 .PHONY: all clean

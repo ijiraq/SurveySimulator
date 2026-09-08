@@ -4,7 +4,7 @@ module debug
   IMPLICIT NONE
   INTEGER, PARAMETER :: STRLEN = 256
 
-  LOGICAL :: debug_on   = .FALSE.
+  LOGICAL :: dbg_active = .FALSE.
   INTEGER :: debug_lvl  = 0
   INTEGER :: log_unit   = 6       ! default to stdout (*)
   LOGICAL :: log_opened = .FALSE.
@@ -17,13 +17,13 @@ CONTAINS
   SUBROUTINE debug_set(on, level)
     LOGICAL, INTENT(IN) :: on
     INTEGER, INTENT(IN), OPTIONAL :: level
-    debug_on  = on
+    dbg_active = on
     IF (PRESENT(level)) debug_lvl = level
   END SUBROUTINE debug_set
 
   LOGICAL FUNCTION dbg_enabled(level)
     INTEGER, INTENT(IN) :: level
-    dbg_enabled = (debug_on .AND. level <= debug_lvl)
+    dbg_enabled = (dbg_active .AND. level <= debug_lvl)
   END FUNCTION dbg_enabled
 
   SUBROUTINE dbg_print(level, msg)
