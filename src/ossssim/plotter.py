@@ -62,6 +62,13 @@ def _as_time(epoch) -> Time:
     return Time(epoch)
 
 
+# Angle (degrees) along which radial distance labels are drawn, and a
+# semi-transparent white box so labels stay legible over dense scatter.
+_RADIAL_LABEL_ANGLE = 100
+_RADIAL_LABEL_BBOX = dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.6, edgecolor='none')
+
+
 def _wedge_width_from_area(area_deg2: float) -> Quantity:
     """Approximate RA wedge width from spherical area (square-equivalent)."""
     side = float(numpy.sqrt(max(area_deg2, 0.0)))
@@ -174,8 +181,10 @@ class RosePlot:
         if len(ring_labels) < len(rings):
             ring_labels = ring_labels + [f"{x:3d} au" for x in rings[len(ring_labels):]]
         ring_labels = ring_labels[:len(rings)]
-        self.ax1.set_rgrids(rings, ring_labels, angle=100, alpha=0.45)
+        self.ax1.set_rgrids(rings, ring_labels, angle=_RADIAL_LABEL_ANGLE, alpha=0.45)
         self.ax1.yaxis.set_major_locator(MultipleLocator(25))
+        for tick_label in self.ax1.yaxis.get_ticklabels():
+            tick_label.set_bbox(_RADIAL_LABEL_BBOX)
         self.ax1.xaxis.set_major_locator(MultipleLocator(numpy.deg2rad(15)))
         self.ax1.grid(axis='x', color='k', linestyle='--', alpha=0.2)
         x_tick_labels = []
@@ -331,12 +340,16 @@ class RosePlot:
         if radii is None:
             radii = [10, 30, 50, 100]
         theta = numpy.arange(0, 2*numpy.pi, 2*numpy.pi/1000)
+        label_angle = numpy.deg2rad(_RADIAL_LABEL_ANGLE)
         for guide_circle in radii:
             r = numpy.ones(len(theta))*guide_circle
             self.ax1.plot(theta, r, ls=':')
-            self.ax1.annotate(f"{guide_circle} au", (0, guide_circle+1),
+            # Label on the ring itself (like the r-grid labels), boxed so it
+            # stays readable on top of dense model scatter.
+            self.ax1.annotate(f"{guide_circle} au", (label_angle, guide_circle),
                               color='b', horizontalalignment='center',
-                              verticalalignment='center_baseline')
+                              verticalalignment='center',
+                              bbox=_RADIAL_LABEL_BBOX)
 
     def add_model(self, model: ModelFile, mc: str = 'k', ms: float = 1.,
                   sample_size: int = None, alpha: float = 1.0) -> None:
