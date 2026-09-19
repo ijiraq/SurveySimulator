@@ -155,12 +155,17 @@ contains
     flag_l = 0
     call debug_set(enable_debug)
 
-    if (first) then
+    ! Reload when the characterization directory changes. Do not touch
+    ! ran3 (iff): callers that AND several epochs must keep one RNG stream.
+    if (first .or. (trim(surnam) /= trim(last_surnam))) then
        first = .false.
+       last_surnam = surnam
 
 ! Opens and reads in survey definitions
        call GetSurvey (surnam, lun_s, n_sur, points, sur_mmag, ierr)
        if (ierr .ne. 0) then
+          first = .true.
+          last_surnam = ' '
           if (ierr .eq. 100) then
              write (screen, *) &
                   'GetSurvey: reached maximum number of pointings, ', n_sur
@@ -507,6 +512,7 @@ contains
   subroutine reset_simulator()
           first = .true.
           iff = 0
+          last_surnam = ' '
           survey_loaded = .false.
           n_sur_loaded = 0
   end subroutine reset_simulator

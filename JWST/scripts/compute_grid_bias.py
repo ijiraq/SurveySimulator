@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -13,51 +13,26 @@ from astropy import units as u
 from ossssim import OSSSSim
 from ossssim.color import PhotSpec
 
-A_STEP = 0.2
-Q_STEP = 0.2
-SI_STEP = 0.001
-H_STEP = 0.1
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from grid_bias import (
+    A_STEP,
+    FILL_FACTOR,
+    H_STEP,
+    MOSAIC_SIDE_DEG,
+    Q_STEP,
+    SI_STEP,
+    apparent_to_Hr,
+    bounds_from_key,
+    cell_key,
+    compute_ifree,
+    ecliptic_from_ifree,
+    sample_aq,
+)
+
 TARGET_DETECTIONS = 5000
 EPOCH_JD = [2459969.5, 2459974.5, 2459978.5]
 FIELD_RA = 209.3875
 FIELD_DEC = -10.865278
-H_COLOR_OFFSET = 1.0
-
-
-def laplace_inclination(a_au: float) -> float:
-    return 1.759 + 0.0321 * (a_au - 41.8)
-
-
-def laplace_node(a_au: float) -> float:
-    return 90.0 - 0.5 * (a_au - 43.0)
-
-
-def compute_ifree(i_deg: float, omega_deg: float, a_au: float) -> float:
-    ip = laplace_inclination(a_au)
-    om_lp = laplace_node(a_au)
-    cos_ifree = (
-        math.cos(math.radians(i_deg)) * math.cos(math.radians(ip))
-        + math.sin(math.radians(i_deg)) * math.sin(math.radians(ip))
-        * math.cos(math.radians(omega_deg - om_lp))
-    )
-    return math.degrees(math.acos(max(-1.0, min(1.0, cos_ifree))))
-
-
-def apparent_to_Hr(m_f150w2: float, d_au: float, phase: float = 0.35) -> float:
-    return m_f150w2 + H_COLOR_OFFSET - 10.0 * math.log10(d_au) + phase
-
-
-def cell_index(value: float, step: float) -> float:
-    return math.floor(value / step) * step
-
-
-def cell_key(a: float, q: float, sin_ifree: float, hx: float) -> tuple:
-    return (
-        round(cell_index(a, A_STEP), 6),
-        round(cell_index(q, Q_STEP), 6),
-        round(cell_index(sin_ifree, SI_STEP), 6),
-        round(cell_index(hx, H_STEP), 6),
-    )
 
 
 def load_detections(path: Path) -> list[dict]:
@@ -68,6 +43,7 @@ def load_detections(path: Path) -> list[dict]:
             d = float(row["d_bary"])
             hx = apparent_to_Hr(float(row["m_f150w2"]), d)
             q = a * (1.0 - e)
+            # Sample A CSV has no node; Ω=0 places every object 90° from Ω_lp.
             ifree = compute_ifree(i, 0.0, a)
             rows.append({**row, "a": a, "e": e, "i": i, "d_bary": d, "q": q,
                          "Hx": hx, "ifree": ifree,
@@ -96,28 +72,39 @@ def save_bias_cache(path: Path, cache: dict) -> None:
 
 
 def setup_pointings(char_root: Path) -> None:
-    # Implant search area 1.6x1.6 deg; active mosaic 0.05 deg2
-    ff = 0.05 / (1.6 * 1.6)
+    # Search footprint is the active mosaic (0.05 deg²), not the 1.6° implant box.
+    # Fill factor is chip-fill inside that mosaic, not mosaic/implant (which would
+    # be applied independently at each epoch and cube the spatial selection).
+    side = MOSAIC_SIDE_DEG
     for idx, jd in enumerate(EPOCH_JD, start=1):
         text = (
             f"# JWST Sample A epoch {idx}\n"
-            f"1.6 1.6 {FIELD_RA} {FIELD_DEC} {jd} {ff:.5f} JWST.csv JWST_sampleA.eff\n"
+            f"{side:.5f} {side:.5f} {FIELD_RA} {FIELD_DEC} {jd} {FILL_FACTOR:.5f} "
+            f"JWST.csv JWST_sampleA.eff\n"
         )
         (char_root / f"epoch{idx}" / "pointings.list").write_text(text)
 
 
 class JWSTSimulator:
+    """Three-epoch AND using one OSSSSim / one RNG stream.
+
+    Detos1 reloads characterization when the directory changes without
+    resetting ran3. Creating three OSSSSim instances is unnecessary and
+    used to hide that only the first GetSurvey call succeeded.
+    """
+
     def __init__(self, char_root: Path, seed: int = 42):
-        os.chdir("/arc/home/jkavelaars/Develop/SurveySimulator")
         setup_pointings(char_root)
-        self.sims = [OSSSSim(str(char_root / f"epoch{i}"), seed=seed + i) for i in (1, 2, 3)]
+        self.epoch_dirs = [str((char_root / f"epoch{i}").resolve()) for i in (1, 2, 3)]
+        self.sim = OSSSSim(self.epoch_dirs[0], seed=seed)
         self.colors = PhotSpec()
 
     def detected_sample_a(self, a, e, inc, node, peri, M, H) -> bool:
         base = dict(a=a * u.au, e=e, inc=inc * u.deg, node=node * u.deg, peri=peri * u.deg,
                     M=M * u.deg, H=H * u.mag, comp="default")
-        for sim, jd in zip(self.sims, EPOCH_JD):
-            r = sim.simulate({**base, "epoch": jd * u.day}, colors=self.colors, model_band="r")
+        for epoch_dir, jd in zip(self.epoch_dirs, EPOCH_JD):
+            self.sim.characterization_directory = epoch_dir
+            r = self.sim.simulate({**base, "epoch": jd * u.day}, colors=self.colors, model_band="r")
             if r["flag"] < 4:
                 return False
         return True
@@ -125,8 +112,6 @@ class JWSTSimulator:
 
 def compute_cell_bias(sim: JWSTSimulator, cell_bounds: dict, seed: int, target: int) -> tuple[float, int]:
     rng = np.random.default_rng(seed)
-    a0, a1 = cell_bounds["a"]
-    q0, q1 = cell_bounds["q"]
     si0, si1 = cell_bounds["sin_ifree"]
     h0, h1 = cell_bounds["Hx"]
 
@@ -134,17 +119,15 @@ def compute_cell_bias(sim: JWSTSimulator, cell_bounds: dict, seed: int, target: 
     n_drawn = 0
     max_draws = max(target * 200000, 500000)
     while n_detected < target and n_drawn < max_draws:
-        a = rng.uniform(a0, a1)
-        q = rng.uniform(q0, min(q1, a * 0.98))
-        if q <= 0:
-            continue
+        a, q = sample_aq(rng, cell_bounds["a"], cell_bounds["q"])
         e = 1.0 - q / a
-        sin_ifree = rng.uniform(si0, si1)
-        ifree = math.degrees(math.asin(max(-1.0, min(1.0, sin_ifree))))
-        H = rng.uniform(h0, h1)
-        node, peri, M = rng.uniform(0, 360, size=3)
+        sin_ifree = float(rng.uniform(si0, si1))
+        ifree = math.degrees(math.asin(max(0.0, min(1.0, sin_ifree))))
+        H = float(rng.uniform(h0, h1))
+        inc, node = ecliptic_from_ifree(ifree, a, rng)
+        peri, M = rng.uniform(0, 360, size=2)
         n_drawn += 1
-        if sim.detected_sample_a(a, e, max(ifree, 0.05), node, peri, M, H):
+        if sim.detected_sample_a(a, e, inc, node, peri, M, H):
             n_detected += 1
         if n_drawn % 50000 == 0:
             print(f"    ... {n_drawn} draws, {n_detected}/{target} detections", flush=True)
@@ -153,17 +136,12 @@ def compute_cell_bias(sim: JWSTSimulator, cell_bounds: dict, seed: int, target: 
     return n_detected / n_drawn, n_drawn
 
 
-def bounds_from_key(key: tuple) -> dict:
-    a0, q0, si0, h0 = key
-    return {"a": (a0, a0 + A_STEP), "q": (q0, q0 + Q_STEP),
-            "sin_ifree": (max(0.0, si0), si0 + SI_STEP), "Hx": (h0, h0 + H_STEP)}
-
-
 def write_detections_full(out_path: Path, detections: list[dict]) -> None:
     header = f"""# File: JWST-free-cla_m.detections-full
 #
 # Grid debiasing ac2c72; Eduardo et al. 2026 Sample A (20 objects)
-# H_r from m_F150W2 + 1.0 - 10log10(d) + 0.35
+# H_r from m_F150W2 + 1.0 - 5log10(r Δ) + 2.5log10(Bowell Φ), r=Δ=d_bary, G=-0.12
+# Catalog i_free uses Ω=0 (node not in Sample A CSV)
 #
 # Grid size:
 # h_step:  {H_STEP}
@@ -201,6 +179,7 @@ def main():
     sim = JWSTSimulator(root / "characterization", seed=args.seed)
     cells = sorted({d["cell"] for d in detections})
     print(f"{len(cells)} cells, target={args.target}/cell")
+    print("warning: Sample A CSV has no Ω; catalog i_free uses Ω=0", flush=True)
 
     for idx, key in enumerate(cells):
         if key in cache:
