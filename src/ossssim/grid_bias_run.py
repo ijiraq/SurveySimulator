@@ -402,8 +402,10 @@ def run_grid_bias(survey: GridSurvey, root: Path, target: int = TARGET_DETECTION
     if survey.bias_method == "model_ae":
         model_path = Path(model_path or default_orbit_model_path())
         print(f"loading orbit model prior from {model_path}", flush=True)
-        model = OrbitModelCatalog.from_l7(model_path)
-        print(f"  {len(model)} model objects", flush=True)
+        model = OrbitModelCatalog.from_path(model_path)
+        fracs = model.component_fractions()
+        mix = ", ".join(f"{k}={v:.3f}" for k, v in sorted(fracs.items()))
+        print(f"  {len(model)} model objects [{mix}]", flush=True)
     sim = GridBiasSimulator(survey, root / "characterization", seed=seed)
     cells = sorted({d["cell"] for d in detections})
     _, lat = icrs_to_ecliptic(survey.field_ra_deg, survey.field_dec_deg)
@@ -516,8 +518,9 @@ def build_arg_parser(survey: GridSurvey, default_root: Path) -> argparse.Argumen
     if survey.bias_method == "model_ae":
         parser.add_argument(
             "--model", default=str(default_orbit_model_path()),
-            help="OSSOS/L7-style orbit model file for p(a,e|r,i) "
-                 f"(default: {default_orbit_model_path()})",
+            help="Orbit model file or directory for p(a,e|r,i). Accepts "
+                 "OSSOS Models 1.0 ModelUsed tables and legacy L7 files. "
+                 f"Default: {default_orbit_model_path()}",
         )
     return parser
 

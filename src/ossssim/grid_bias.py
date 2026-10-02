@@ -520,8 +520,42 @@ def rih_bounds_from_key(key: tuple) -> dict:
 
 
 def default_orbit_model_path() -> Path:
-    """In-repo L7 fixture (Petit et al. / CFEPS–OSSOS style)."""
-    return Path(__file__).resolve().parents[2] / "F95" / "tests" / "Models" / "L7model-3.0-9.0"
+    """In-repo OSSOS Models 1.0 ``ModelUsed`` tables (all components).
+
+    Override with ``--model PATH`` (file or directory). Legacy L7-style
+    files remain readable by :meth:`OrbitModelCatalog.from_path`.
+    """
+    return Path(__file__).resolve().parents[2] / "Models" / "OSSOS"
+
+
+def _detect_orbit_model_format(path: Path) -> str:
+    """Return ``ossos_modelused`` or ``l7`` from a commented column header."""
+    with path.open() as fh:
+        for line in fh:
+            if not line.lstrip().startswith("#"):
+                continue
+            low = line.lower()
+            if "comment" in low and "dist" in low:
+                return "ossos_modelused"
+            if "comp" in low and "dist" in low:
+                return "l7"
+    # Fall back on the first data row width.
+    with path.open() as fh:
+        for line in fh:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            n = len(line.split())
+            if n >= 10:
+                return "ossos_modelused"
+            if n >= 9:
+                return "l7"
+            break
+    raise ValueError(f"cannot detect orbit-model format for {path}")
+
+
+def _normalize_model_comp(label: str) -> str:
+    """Strip ModelUsed trailing underscores; keep a short component tag."""
+    return str(label).strip().rstrip("_") or "unknown"
 
 
 @dataclass(frozen=True)
@@ -531,6 +565,8 @@ class OrbitModelCatalog:
     All dynamical components present in the file are kept. Selecting on
     (r, i) alone mixes cold / hot / resonant / etc. in the model's own
     proportions — appropriate when a detection's component is unknown.
+
+    Accepts OSSOS Models 1.0 ``ModelUsed.dat`` tables and legacy L7 files.
     """
 
     a: np.ndarray
@@ -543,9 +579,28 @@ class OrbitModelCatalog:
         return int(self.a.size)
 
     @classmethod
-    def from_l7(cls, path) -> "OrbitModelCatalog":
-        """Load an L7-style model: ``a e i node peri M H dist comp [j k]``."""
+    def _from_arrays(cls, a_list, e_list, i_list, d_list, c_list, path: Path
+                     ) -> "OrbitModelCatalog":
+        if not a_list:
+            raise ValueError(f"no model rows in {path}")
+        return cls(
+            a=np.asarray(a_list, dtype=float),
+            e=np.asarray(e_list, dtype=float),
+            i_deg=np.asarray(i_list, dtype=float),
+            dist=np.asarray(d_list, dtype=float),
+            comp=np.asarray(c_list, dtype=object),
+        )
+
+    @classmethod
+    def from_file(cls, path, comp_label: str | None = None) -> "OrbitModelCatalog":
+        """Load one model file (OSSOS ModelUsed or L7).
+
+        If ``comp_label`` is set (typical when loading a directory of
+        component files), every row is tagged with that label. Otherwise
+        the file's own ``comment`` / ``comp`` column is used.
+        """
         path = Path(path)
+        fmt = _detect_orbit_model_format(path)
         a_list: list[float] = []
         e_list: list[float] = []
         i_list: list[float] = []
@@ -556,21 +611,84 @@ class OrbitModelCatalog:
                 if not line.strip() or line.lstrip().startswith("#"):
                     continue
                 parts = line.split()
-                if len(parts) < 9:
-                    continue
-                a_list.append(float(parts[0]))
-                e_list.append(float(parts[1]))
-                i_list.append(float(parts[2]))
-                d_list.append(float(parts[7]))
-                c_list.append(str(parts[8]))
-        if not a_list:
-            raise ValueError(f"no model rows in {path}")
+                if fmt == "ossos_modelused":
+                    # a e i Omega omega M H epoch dist comment
+                    if len(parts) < 10:
+                        continue
+                    a_list.append(float(parts[0]))
+                    e_list.append(float(parts[1]))
+                    i_list.append(float(parts[2]))
+                    d_list.append(float(parts[8]))
+                    label = comp_label or _normalize_model_comp(parts[9])
+                    c_list.append(label)
+                else:
+                    # a e i node peri M H dist comp [j k]
+                    if len(parts) < 9:
+                        continue
+                    a_list.append(float(parts[0]))
+                    e_list.append(float(parts[1]))
+                    i_list.append(float(parts[2]))
+                    d_list.append(float(parts[7]))
+                    label = comp_label or _normalize_model_comp(parts[8])
+                    c_list.append(label)
+        return cls._from_arrays(a_list, e_list, i_list, d_list, c_list, path)
+
+    @classmethod
+    def from_directory(cls, path) -> "OrbitModelCatalog":
+        """Concatenate every ``*.dat`` / ``*model*`` table in a directory.
+
+        Component labels are taken from each filename stem before the first
+        ``-`` or ``_Model`` / ``Model`` marker (e.g. ``Classical-ModelUsed.dat``
+        → ``Classical``), so mixture fractions report OSSOS populations.
+        """
+        path = Path(path)
+        files = sorted(
+            p for p in path.iterdir()
+            if p.is_file() and p.suffix.lower() in {".dat", ".txt", ""}
+            and not p.name.startswith(".")
+        )
+        # Prefer *ModelUsed* when present (the OSSOS Models 1.0 dumps).
+        modelused = [p for p in files if "modelused" in p.name.lower()]
+        if modelused:
+            files = modelused
+        if not files:
+            raise FileNotFoundError(f"no orbit model files in {path}")
+        catalogs = []
+        for fp in files:
+            stem = fp.stem
+            for sep in ("-ModelUsed", "_ModelUsed", "-modelused", "ModelUsed"):
+                if sep in stem:
+                    stem = stem.split(sep)[0]
+                    break
+            label = stem or fp.stem
+            catalogs.append(cls.from_file(fp, comp_label=label))
+        return cls.concatenate(catalogs)
+
+    @classmethod
+    def from_path(cls, path) -> "OrbitModelCatalog":
+        """Load a model file or a directory of component model files."""
+        path = Path(path)
+        if path.is_dir():
+            return cls.from_directory(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"orbit model path not found: {path}")
+        return cls.from_file(path)
+
+    @classmethod
+    def from_l7(cls, path) -> "OrbitModelCatalog":
+        """Backward-compatible alias for :meth:`from_path`."""
+        return cls.from_path(path)
+
+    @classmethod
+    def concatenate(cls, catalogs: list["OrbitModelCatalog"]) -> "OrbitModelCatalog":
+        if not catalogs:
+            raise ValueError("concatenate() requires at least one catalog")
         return cls(
-            a=np.asarray(a_list, dtype=float),
-            e=np.asarray(e_list, dtype=float),
-            i_deg=np.asarray(i_list, dtype=float),
-            dist=np.asarray(d_list, dtype=float),
-            comp=np.asarray(c_list, dtype=object),
+            a=np.concatenate([c.a for c in catalogs]),
+            e=np.concatenate([c.e for c in catalogs]),
+            i_deg=np.concatenate([c.i_deg for c in catalogs]),
+            dist=np.concatenate([c.dist for c in catalogs]),
+            comp=np.concatenate([c.comp for c in catalogs]),
         )
 
     def select(self, r_lo: float, r_hi: float, i_lo: float, i_hi: float
