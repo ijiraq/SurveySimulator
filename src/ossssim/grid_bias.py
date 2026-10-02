@@ -17,6 +17,9 @@ A_STEP = 0.2
 Q_STEP = 0.2
 SI_STEP = 0.001
 H_STEP = 0.1
+# JWST model-ae cells: well-measured discovery distance and ecliptic i.
+R_STEP = 1.0
+I_STEP = 1.0
 BOWELL_G = -0.12
 OBLIQUITY_J2000_DEG = 23.4392911
 # rot.f95 equat_ecl; used when matching Detos1 / RADECeclXV
@@ -25,6 +28,10 @@ POINTINGS_TEMPLATE_NAME = "pointings.template"
 TWO_HOURS_DAY = 2.0 / 24.0
 # Napier et al. 2026 / user: r_AB = STMAG_F606W - 0.3
 STMAG_F606W_TO_R_AB = -0.3
+# Minimum L7-style model objects retained in an (r, i) window before
+# the window is expanded. Sparse corners (e.g. r~28 AU) need this.
+MODEL_AE_MIN_CANDIDATES = 50
+MODEL_AE_MAX_EXPAND = 8
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,9 @@ class GridSurvey:
     detections_relpath: str = "data/detections.csv"
     detections_full_name: str = "detections-full"
     check_detected_title: str = "detected flag≥4"
+    # "aq_grid": small (a, q, sin i_free, H) cells (N26 / well-known orbits).
+    # "model_ae": (r, i, H) cells; (a, e) from an OSSOS model p(a,e|r,i).
+    bias_method: str = "aq_grid"
 
     @property
     def n_epochs(self) -> int:
@@ -88,6 +98,8 @@ JWST_SAMPLE_A = GridSurvey(
     detections_relpath="data/jwst_sampleA.csv",
     detections_full_name="JWST-free-cla_m.detections-full",
     check_detected_title="detected flag≥4 at all 3 epochs",
+    # Short arcs: do not trust catalog (a, e); use OSSOS model p(a,e|r,i).
+    bias_method="model_ae",
 )
 
 # Napier et al. 2026 (PSJ 7, 117) reanalysis of Bernstein et al. 2004
@@ -468,6 +480,7 @@ def cell_index(value: float, step: float) -> float:
 
 
 def cell_key(a: float, q: float, sin_ifree: float, hx: float) -> tuple:
+    """(a, q, sin i_free, H) cell for well-constrained orbits (``aq_grid``)."""
     return (
         round(cell_index(a, A_STEP), 6),
         round(cell_index(q, Q_STEP), 6),
@@ -476,7 +489,17 @@ def cell_key(a: float, q: float, sin_ifree: float, hx: float) -> tuple:
     )
 
 
+def rih_cell_key(r_au: float, i_deg: float, hx: float) -> tuple:
+    """(r, ecliptic i, H) cell when (a, e) are marginalized via a model prior."""
+    return (
+        round(cell_index(r_au, R_STEP), 6),
+        round(cell_index(i_deg, I_STEP), 6),
+        round(cell_index(hx, H_STEP), 6),
+    )
+
+
 def bounds_from_key(key: tuple) -> dict:
+    """Bounds for an ``aq_grid`` cell key."""
     a0, q0, si0, h0 = key
     return {
         "a": (a0, a0 + A_STEP),
@@ -486,8 +509,149 @@ def bounds_from_key(key: tuple) -> dict:
     }
 
 
+def rih_bounds_from_key(key: tuple) -> dict:
+    """Bounds for a ``model_ae`` (r, i, H) cell key."""
+    r0, i0, h0 = key
+    return {
+        "r": (r0, r0 + R_STEP),
+        "i": (i0, i0 + I_STEP),
+        "Hx": (h0, h0 + H_STEP),
+    }
+
+
+def default_orbit_model_path() -> Path:
+    """In-repo L7 fixture (Petit et al. / CFEPS–OSSOS style)."""
+    return Path(__file__).resolve().parents[2] / "F95" / "tests" / "Models" / "L7model-3.0-9.0"
+
+
+@dataclass(frozen=True)
+class OrbitModelCatalog:
+    """Keplerian lookup table used as an empirical p(a, e | r, i) prior.
+
+    All dynamical components present in the file are kept. Selecting on
+    (r, i) alone mixes cold / hot / resonant / etc. in the model's own
+    proportions — appropriate when a detection's component is unknown.
+    """
+
+    a: np.ndarray
+    e: np.ndarray
+    i_deg: np.ndarray
+    dist: np.ndarray
+    comp: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.a.size)
+
+    @classmethod
+    def from_l7(cls, path) -> "OrbitModelCatalog":
+        """Load an L7-style model: ``a e i node peri M H dist comp [j k]``."""
+        path = Path(path)
+        a_list: list[float] = []
+        e_list: list[float] = []
+        i_list: list[float] = []
+        d_list: list[float] = []
+        c_list: list[str] = []
+        with path.open() as fh:
+            for line in fh:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 9:
+                    continue
+                a_list.append(float(parts[0]))
+                e_list.append(float(parts[1]))
+                i_list.append(float(parts[2]))
+                d_list.append(float(parts[7]))
+                c_list.append(str(parts[8]))
+        if not a_list:
+            raise ValueError(f"no model rows in {path}")
+        return cls(
+            a=np.asarray(a_list, dtype=float),
+            e=np.asarray(e_list, dtype=float),
+            i_deg=np.asarray(i_list, dtype=float),
+            dist=np.asarray(d_list, dtype=float),
+            comp=np.asarray(c_list, dtype=object),
+        )
+
+    def select(self, r_lo: float, r_hi: float, i_lo: float, i_hi: float
+               ) -> "OrbitModelCatalog":
+        """Objects with discovery distance and ecliptic i in the window."""
+        mask = (
+            (self.dist >= r_lo) & (self.dist < r_hi)
+            & (self.i_deg >= i_lo) & (self.i_deg < i_hi)
+        )
+        return OrbitModelCatalog(
+            a=self.a[mask], e=self.e[mask], i_deg=self.i_deg[mask],
+            dist=self.dist[mask], comp=self.comp[mask],
+        )
+
+    def select_expanding(self, r_lo: float, r_hi: float, i_lo: float, i_hi: float,
+                         min_n: int = MODEL_AE_MIN_CANDIDATES,
+                         max_expand: int = MODEL_AE_MAX_EXPAND
+                         ) -> tuple["OrbitModelCatalog", float, float]:
+        """Grow the (r, i) window symmetrically until ``min_n`` objects.
+
+        Returns ``(subset, dr_half, di_half)`` actually used. Raises if the
+        full catalog still has fewer than ``min_n`` objects in range.
+        """
+        r_mid = 0.5 * (r_lo + r_hi)
+        i_mid = 0.5 * (i_lo + i_hi)
+        dr0 = max(0.5 * (r_hi - r_lo), 0.5 * R_STEP)
+        di0 = max(0.5 * (i_hi - i_lo), 0.5 * I_STEP)
+        for k in range(max_expand):
+            dr = dr0 * (2.0 ** k)
+            di = di0 * (2.0 ** k)
+            sub = self.select(r_mid - dr, r_mid + dr, i_mid - di, i_mid + di)
+            if len(sub) >= min_n:
+                return sub, dr, di
+        sub = self.select(r_mid - dr0 * (2.0 ** max_expand),
+                          r_mid + dr0 * (2.0 ** max_expand),
+                          i_mid - di0 * (2.0 ** max_expand),
+                          i_mid + di0 * (2.0 ** max_expand))
+        if len(sub) == 0:
+            raise RuntimeError(
+                f"no model objects near r∈[{r_lo}, {r_hi}), i∈[{i_lo}, {i_hi})"
+            )
+        return sub, dr0 * (2.0 ** (max_expand - 1)), di0 * (2.0 ** (max_expand - 1))
+
+    def component_fractions(self) -> dict[str, float]:
+        if len(self) == 0:
+            return {}
+        vals, counts = np.unique(self.comp, return_counts=True)
+        n = float(len(self))
+        return {str(v): float(c) / n for v, c in zip(vals, counts)}
+
+    def reachable_at(self, r_au: float) -> np.ndarray:
+        """Boolean mask: ellipse contains heliocentric distance ``r_au``."""
+        q = self.a * (1.0 - self.e)
+        q_ap = self.a * (1.0 + self.e)
+        return (q <= r_au + 1e-8) & (r_au <= q_ap + 1e-8)
+
+    def sample_ae(self, rng: np.random.Generator, r_au: float | None = None,
+                  max_tries: int = 10000) -> tuple[float, float, str]:
+        """Draw (a, e, comp), optionally requiring the orbit to reach ``r_au``."""
+        if len(self) == 0:
+            raise RuntimeError("empty OrbitModelCatalog")
+        if r_au is None:
+            idx = int(rng.integers(0, len(self)))
+            return float(self.a[idx]), float(self.e[idx]), str(self.comp[idx])
+        mask = self.reachable_at(r_au)
+        idxs = np.flatnonzero(mask)
+        if idxs.size == 0:
+            raise RuntimeError(
+                f"no model (a,e) reaches r={r_au:.3f} AU in this (r,i) window"
+            )
+        for _ in range(max_tries):
+            idx = int(rng.choice(idxs))
+            return float(self.a[idx]), float(self.e[idx]), str(self.comp[idx])
+        raise RuntimeError("sample_ae failed")
+
+
 def load_detections(path, survey: GridSurvey) -> list[dict]:
-    """Read a survey detections CSV and assign (a, q, sin i_free, H) cells.
+    """Read a survey detections CSV and assign bias cells.
+
+    ``aq_grid``: (a, q, sin i_free, H) from catalog elements.
+    ``model_ae``: (r, ecliptic i, H); catalog (a, e) kept for bookkeeping only.
 
     Uses ``survey.mag_column`` and ``survey.mag_color_offset`` for H_r.
     If the CSV has an ``ifree`` column (N26 Table 2 midpoints), that value
@@ -505,11 +669,15 @@ def load_detections(path, survey: GridSurvey) -> list[dict]:
                 ifree = float(row["ifree"])
             else:
                 ifree = compute_ifree(i, 0.0, a)
+            if survey.bias_method == "model_ae":
+                cell = rih_cell_key(d, i, hx)
+            else:
+                cell = cell_key(a, q, math.sin(math.radians(ifree)), hx)
             rows.append({
                 **row, "a": a, "e": e, "i": i, "d_bary": d, "q": q,
                 "Hx": hx, "ifree": ifree, "mag": mag,
                 "sin_ifree": math.sin(math.radians(ifree)),
-                "cell": cell_key(a, q, math.sin(math.radians(ifree)), hx),
+                "cell": cell,
             })
     return rows
 
@@ -537,6 +705,24 @@ def write_detections_full(out_path, detections: list[dict], survey: GridSurvey,
     - bias: Horvitz–Thompson P(detect | cell)
     """
     if header_lines is None:
+        if survey.bias_method == "model_ae":
+            grid_lines = (
+                f"# Bias method: model_ae — cells in (r, i, H); "
+                f"(a, e) from OSSOS model p(a,e|r,i)\n"
+                f"# Grid size:\n"
+                f"# h_step:  {H_STEP}\n"
+                f"# r_step:  {R_STEP}\n"
+                f"# i_step:  {I_STEP}\n"
+            )
+        else:
+            grid_lines = (
+                f"# Bias method: aq_grid — cells in (a, q, sin i_free, H)\n"
+                f"# Grid size:\n"
+                f"# h_step:  {H_STEP}\n"
+                f"# a_step:  {A_STEP}\n"
+                f"# q_step:  {Q_STEP}\n"
+                f"# si_step: {SI_STEP}\n"
+            )
         header_lines = (
             f"# File: {survey.detections_full_name}\n"
             f"#\n"
@@ -546,11 +732,7 @@ def write_detections_full(out_path, detections: list[dict], survey: GridSurvey,
             f"# Extra after MPC: ifree Omfree omfree (Laplace-free elements; "
             f"Omfree=omfree=0 if unknown), Hx, comp, bias\n"
             f"#\n"
-            f"# Grid size:\n"
-            f"# h_step:  {H_STEP}\n"
-            f"# a_step:  {A_STEP}\n"
-            f"# q_step:  {Q_STEP}\n"
-            f"# si_step: {SI_STEP}\n"
+            f"{grid_lines}"
             f"#\n"
         )
     ref_jd = survey.paper_reference_jd or survey.epoch_jd[0]
@@ -909,24 +1091,50 @@ def aimed_elements(a: float, e: float, ifree_deg: float,
 
 def sample_aimed_elements(a: float, e: float, ifree_deg: float, obs_icrf,
                           rng: np.random.Generator, max_tries: int = 40,
-                          survey: GridSurvey | None = None
+                          survey: GridSurvey | None = None,
+                          r_au: float | None = None
                           ) -> tuple[float, float, float, float] | None:
     """FoV-aimed (i, Ω, ω, M) for one (a, e, i_free) draw.
 
-    Samples an ICRS location in the mosaic and r on [q, Q], then inverts.
-    Discrete branches (±f, two poles) are chosen uniformly. Returns None
-    if no inversion succeeds (cheap: i_free below the Laplace latitude).
+    Samples an ICRS location in the mosaic and, unless ``r_au`` is given,
+    a radius on [q, Q], then inverts. Discrete branches (±f, two poles)
+    are chosen uniformly. Returns None if no inversion succeeds (cheap:
+    i_free below the Laplace latitude).
     """
     for _ in range(max_tries):
         ra, dec = sample_mosaic_icrs(rng, survey=survey)
-        r_au = sample_orbital_radius(a, e, rng)
+        r_draw = sample_orbital_radius(a, e, rng) if r_au is None else float(r_au)
         f_sign = 1.0 if rng.random() < 0.5 else -1.0
         pole_index = int(rng.integers(0, 2))
         el = aimed_elements(
-            a, e, ifree_deg, ra, dec, r_au, obs_icrf, f_sign, pole_index
+            a, e, ifree_deg, ra, dec, r_draw, obs_icrf, f_sign, pole_index
         )
         if el is not None:
             return el
+    return None
+
+
+def sample_aimed_elements_at_i(a: float, e: float, inc_deg: float, obs_icrf,
+                               rng: np.random.Generator, r_au: float,
+                               max_tries: int = 40,
+                               survey: GridSurvey | None = None
+                               ) -> tuple[float, float, float, float] | None:
+    """FoV-aimed (i, Ω, ω, M) pinning ecliptic inclination and distance.
+
+    Used by ``model_ae`` debiasing: (a, e) come from the orbit model, while
+    discovery (r, i) are the measured cell coordinates. ``keplerian_at_radec_r``
+    solves for Ω (and then ω, M) so the orbit hits the mosaic at that r.
+    """
+    for _ in range(max_tries):
+        ra, dec = sample_mosaic_icrs(rng, survey=survey)
+        f_sign = 1.0 if rng.random() < 0.5 else -1.0
+        node_index = int(rng.integers(0, 2))
+        el = keplerian_at_radec_r(
+            a, e, inc_deg, ra, dec, r_au, obs_icrf, f_sign, node_index
+        )
+        if el is not None:
+            _a, _e, inc, node, peri, mean_anom = el
+            return inc, node, peri, mean_anom
     return None
 
 
