@@ -28,3 +28,6 @@ bdir
 # Fortran local build products
 F95/libsrc.a
 F95/ossssimlib/
+F95/f90wrap*
+F95/f2py_build
+F95/.f2py_f2cmap
