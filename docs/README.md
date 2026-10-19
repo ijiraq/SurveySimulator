@@ -16,7 +16,7 @@ inputs (`pointings.list`, efficiency `.eff` files, and related notes).
 | ------- | -------- |
 | Model inputs (L7, InnerHot, HST, resonance parameters) | [`data/Models/`](../data/Models/) |
 | Example characterizations (CFEPS, HST, JWST) | [`data/Surveys/`](../data/Surveys/) |
-| Full OSSOS v11 / CFEPS characterizations | `characterization/` in [jwst-tno-followup](https://github.com/ijiraq/jwst-tno-followup) |
+| Full OSSOS v11 / CFEPS characterizations | `characterization/` in [SurveyCharacterizations](https://github.com/ijiraq/SurveyCharacterizations) |
 | Fortran-specific build / Driver usage | [`F95/README.md`](../F95/README.md) |
 | Python install / module usage | [`src/README.md`](../src/README.md) |
 

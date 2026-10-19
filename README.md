@@ -31,9 +31,9 @@ Grid-based survey debiasing and the survey-specific follow-up projects live in
 
 - [survey_debias](https://github.com/ijiraq/survey_debias) — shared grid-cell
   debiasing helpers and runner (imports `ossssim`).
-- [jwst-tno-followup](https://github.com/ijiraq/jwst-tno-followup) — Eduardo
-  et al. 2026 JWST Sample A characterization and the full OSSOS v11 / CFEPS
-  characterizations.
+- [SurveyCharacterizations](https://github.com/ijiraq/SurveyCharacterizations)
+  — the full OSSOS v11 / CFEPS characterizations, the OSSOS First Data Release
+  (OSSOS-B), and the Eduardo et al. 2026 JWST Sample A characterization.
 - [hst-tno-followup](https://github.com/ijiraq/hst-tno-followup) — N26 (Napier
   et al. 2026) and Bernstein 2004/2006 HST survey characterization.
 
@@ -84,10 +84,11 @@ regressions, the Python tests and the examples are in `data/` (see
 `docs/examples/mini_survey/`.
 
 The full OSSOS v11 release characterizations (`CFEPS`, `OSSOS-MA`,
-`All_Surveys`, `All_r_Surveys`, `Deep_Surveys`) and the JWST Sample A
-characterization used for science runs are kept, unmodified, in the
-`characterization/` directory of the separate
-[jwst-tno-followup](https://github.com/ijiraq/jwst-tno-followup) project.
+`All_Surveys`, `All_r_Surveys`, `Deep_Surveys`), the OSSOS First Data Release
+(`OSSOS-B`), and the JWST Sample A characterization used for science runs are
+kept, unmodified, in the `characterization/` directory of the separate
+[SurveyCharacterizations](https://github.com/ijiraq/SurveyCharacterizations)
+repository.
 
 ## Licence
 

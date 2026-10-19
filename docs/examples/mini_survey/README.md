@@ -13,4 +13,4 @@ See [`../../README.formats`](../../README.formats) for the block file format.
 Example characterizations are in [`data/Surveys/`](../../../data/Surveys/).
 The complete OSSOS v11 characterizations (including OSSOS-MA) are kept in the
 `characterization/` directory of
-[jwst-tno-followup](https://github.com/ijiraq/jwst-tno-followup).
+[SurveyCharacterizations](https://github.com/ijiraq/SurveyCharacterizations).
