@@ -48,6 +48,10 @@ RUN MAKEFLAGS="${MAKEFLAGS:--j2}" \
  && make -j2 -C F95 Driver GIMEOBJ=ReadModelFromFile \
  && cp F95/Driver /usr/local/bin/SSim
 
+
+# Add the survey_debias package from the github repo, used to debiasing surveys.
+RUN pip install git+https://github.com/ijiraq/survey_debias.git
+
 # Development user for Cursor cloud and the local devcontainer. skaha injects the real
 # CADC user at runtime via SSS, so this `ubuntu` user is only used by Cursor/devcontainer.
 # Passwordless sudo lets the editable (-e) install write into the root-owned conda env
