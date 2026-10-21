@@ -297,30 +297,22 @@ contains
     type(t_v3d), intent(in) :: pos, obspos
     real (kind=8), intent(out) :: ra, dec, delta
     integer :: ierr
-    type(t_v3d) :: opos, obs_eq
-    real (kind=8) :: robs
+    type(t_v3d) :: opos
 
 ! Object is barycentric ecliptic. FoV polygons are ICRS RA/Dec, so convert
-! the object to ICRF. Observatory vectors are documented as ICRF (HST.csv,
-! and JWST.csv after read_jpl_csv). Horizons ecliptic dumps left unconverted
-! have |z|/r ~ 0 (JWST sits in the ecliptic); subtracting that from an ICRF
-! object misses the mosaic by ~0.4 deg. Rotate those observers here too.
+! the object to ICRF. obspos is always ICRF: ObsPos returns ICRF for MPC
+! codes, and read_jpl_csv rotates ecliptic Horizons dumps (JWST.csv) to ICRF.
+! Do not guess the frame from |z|/r: Earth's ICRF z is below 0.1 r within
+! ~15 deg of the equinoxes, and rotating it again moves the observer by
+! ~0.03 au.
     call equat_ecl (-1, pos, opos, ierr)
     if (ierr .ne. 0) then
        write (6, *) 'Problem in conversion ecliptic -> equatorial'
     end if
 
-    robs = dsqrt(obspos%x**2 + obspos%y**2 + obspos%z**2)
-    if ((robs .gt. 0.d0) .and. (dabs(obspos%z) .lt. 0.1d0*robs)) then
-       call equat_ecl (-1, obspos, obs_eq, ierr)
-       opos%x = opos%x - obs_eq%x
-       opos%y = opos%y - obs_eq%y
-       opos%z = opos%z - obs_eq%z
-    else
-       opos%x = opos%x - obspos%x
-       opos%y = opos%y - obspos%y
-       opos%z = opos%z - obspos%z
-    end if
+    opos%x = opos%x - obspos%x
+    opos%y = opos%y - obspos%y
+    opos%z = opos%z - obspos%z
     call LatLong (opos, ra, dec, delta)
 
     return
