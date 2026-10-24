@@ -8,6 +8,8 @@ from ossssim import SurveyCharacterization
 
 script_directory = pathlib.Path(__file__).parent.resolve()
 CFEPS = script_directory / 'data' / 'Surveys' / 'CFEPS'
+COSDEC = script_directory.parent / 'F95' / 'tests' / 'data' / 'cosdec_survey'
+COSDEC_GC = script_directory.parent / 'F95' / 'tests' / 'data' / 'cosdec_gc'
 
 
 class SurveyCharacterizationTest(unittest.TestCase):
@@ -78,6 +80,50 @@ class SurveyCharacterizationTest(unittest.TestCase):
         np.testing.assert_allclose(
             a_one, p.effective_area(mags), rtol=1e-10
         )
+
+
+class CosDecFootprintTest(unittest.TestCase):
+    """1 deg x 1 deg footprints must have the same area at every Dec."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not COSDEC.is_dir():
+            raise unittest.SkipTest(f'cosdec fixture missing: {COSDEC}')
+        try:
+            cls.survey = SurveyCharacterization.from_directory(str(COSDEC))
+        except ImportError:
+            raise unittest.SkipTest('ossssimlib not importable')
+
+    def test_square_area_independent_of_dec(self):
+        # Index 6 is the MegaPrime ears footprint, 8 the 8x1 deg strip and
+        # 9 the slanted OSSOS-like block.
+        squares = [p for i, p in enumerate(self.survey) if i not in (6, 8, 9)]
+        self.assertEqual(len(squares), 7)
+        areas = np.array([p.area_deg2 for p in squares])
+        decs = np.degrees([p.dec for p in squares])
+        self.assertLess(abs(decs).max(), 90.0)
+        self.assertGreater(np.ptp(decs), 100.0)
+        np.testing.assert_allclose(areas, 1.0, rtol=1e-3)
+
+    def test_strip_area(self):
+        self.assertAlmostEqual(self.survey[8].area_deg2 / 8.0, 1.0, delta=1e-3)
+
+
+class GreatCircleEdgesTest(unittest.TestCase):
+    """survey.conf 'edges = great_circle' keeps long edges undensified."""
+
+    def test_strip_area_great_circle(self):
+        if not COSDEC_GC.is_dir():
+            raise unittest.SkipTest(f'fixture missing: {COSDEC_GC}')
+        try:
+            survey = SurveyCharacterization.from_directory(str(COSDEC_GC))
+        except ImportError:
+            raise unittest.SkipTest('ossssimlib not importable')
+        self.assertEqual(len(survey), 1)
+        # Great-circle top and bottom edges bulge poleward: ~0.65% more area
+        # than the 8 deg^2 constant-Dec strip.
+        self.assertGreater(survey[0].area_deg2, 8.03)
+        self.assertLess(survey[0].area_deg2, 8.08)
 
 
 if __name__ == '__main__':

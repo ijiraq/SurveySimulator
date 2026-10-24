@@ -1,0 +1,35 @@
+# Synthetic footprints for the cos(dec) footprint test.
+#
+# Every footprint is 1 deg x 1 deg on the sky (except the ears), so its
+# area and its east-west extent must not depend on declination.
+# Order matters: test_cosdec_footprint.f95 indexes these entries.
+#
+# 1-5: rectangles at Dec 0, +30, +60, -60, +75
+rect 1.0 1.0  30.0   0.0 2456391.5 1.0 500 cosdec.eff
+rect 1.0 1.0  60.0  30.0 2456391.5 1.0 500 cosdec.eff
+rect 1.0 1.0  90.0  60.0 2456391.5 1.0 500 cosdec.eff
+rect 1.0 1.0 120.0 -60.0 2456391.5 1.0 500 cosdec.eff
+rect 1.0 1.0 150.0  75.0 2456391.5 1.0 500 cosdec.eff
+#
+# 6: rectangle straddling RA = 0
+rect 1.0 1.0   0.1  30.0 2456391.5 1.0 500 cosdec.eff
+#
+# 7: MegaPrime "ears" footprint
+ears 200.0 60.0 2456391.5 1.0 500 cosdec.eff
+#
+# 8: polygon of tangent-plane offsets [deg], 1 deg square
+poly 4 250.0 60.0 2456391.5 1.0 500 cosdec.eff
+-0.5 -0.5
+-0.5  0.5
+ 0.5  0.5
+ 0.5 -0.5
+#
+# 9: 8 deg x 1 deg strip of fields tiled along Dec = 60
+rect 8.0 1.0 300.0 60.0 2456391.5 1.0 500 cosdec.eff
+#
+# 10: slanted 7 deg block, shaped like OSSOS 2013AE
+poly 4 213.87 -12.54 2456391.5 1.0 500 cosdec.eff
+-3.5 -0.434889
+-3.5  2.565111
+ 3.5  0.473417
+ 3.5 -2.526583

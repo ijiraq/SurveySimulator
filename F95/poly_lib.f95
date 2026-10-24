@@ -15,11 +15,14 @@ contains
 ! The first and most important one is:
 !     point_in_polygon (p, poly, n)
 ! which tells if the point "p" is inside, outside or touching the
-! polygon "poly".
+! polygon "poly". Points and vertices are RA/Dec [rad]; polygon edges are
+! great circles, and RA wrap at 0/2pi is handled.
 !
 ! Also provides:
 !     polygon_area (poly)
-! spherical area of a simple RA/Dec footprint, in square degrees.
+! spherical area of a simple RA/Dec footprint, in square degrees, and
+!     densify_polygon (poly)
+! which makes long edges follow the straight RA/Dec line.
 !
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
 
@@ -28,8 +31,9 @@ contains
 ! This function checks if point "p" is inside the polygon "poly" using
 ! the quadrant method.
 !
-! This moves the given point to the origin and shifts the polygon
-! accordingly. Then for each edge of the polygon, calc_walk_summand is
+! The polygon vertices are gnomonically projected about the given point,
+! which puts the point at the origin and maps the great-circle edges onto
+! straight lines. Then for each edge of the polygon, calc_walk_summand is
 ! called. If the sum of all returned values from these calls is +4 or
 ! -4, the point lies indeed inside the polygon. Otherwise, if a
 ! PolygonsTouching exception has been caught, the point lies on one of
@@ -41,11 +45,13 @@ contains
 !
 ! J.-M. Petit  Observatoire de Besancon
 ! Version 1 : February 2016
+! Version 2 : October 2026
+!             Great-circle edges via gnomonic projection about p
 !
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
 ! INPUT
-!     p     : Point (array (x,y)) (2*R8)
-!     poly  : Polygon structure (polygon)
+!     p     : Point (array (ra,dec)) [rad] (2*R8)
+!     poly  : Polygon structure (polygon), RA/Dec [rad]
 !
 ! OUTPUT
 !     point_in_polygon: result of the call (I4)
@@ -63,13 +69,24 @@ contains
     type(t_polygon), intent(in) :: poly
     real (kind=8), intent(in) :: p(2)
     integer :: i, walk_sum, walk
-    integer, parameter :: n_max=100
-    real (kind=8) :: moved(2,n_max+1)
+    real (kind=8) :: moved(2,n_e_max)
+    real (kind=8) :: sd0, cd0, dra, sy, cy, cosc
 
-! Move point to origin
+! Gnomonic projection about p. A vertex 90 deg or more away cannot belong
+! to a footprint containing p (footprints are smaller than a hemisphere).
+    sd0 = dsin(p(2))
+    cd0 = dcos(p(2))
     do i = 1, poly%n+1
-       moved(1,i) = poly%x(i) - p(1)
-       moved(2,i) = poly%y(i) - p(2)
+       dra = poly%x(i) - p(1)
+       sy = dsin(poly%y(i))
+       cy = dcos(poly%y(i))
+       cosc = sd0*sy + cd0*cy*dcos(dra)
+       if (cosc .le. 0.d0) then
+          point_in_polygon = 0
+          return
+       end if
+       moved(1,i) = cy*dsin(dra)/cosc
+       moved(2,i) = (cd0*sy - sd0*cy*dcos(dra))/cosc
     end do
 
 ! Computing the running sum
@@ -265,6 +282,90 @@ contains
     end if
     return
   end function spherical_triangle_area
+
+  real (kind=8) function angle3(u, v)
+! Angle [rad] between unit vectors u and v.
+    implicit none
+    real (kind=8), intent(in) :: u(3), v(3)
+    real (kind=8) :: c(3)
+    c(1) = u(2)*v(3) - u(3)*v(2)
+    c(2) = u(3)*v(1) - u(1)*v(3)
+    c(3) = u(1)*v(2) - u(2)*v(1)
+    angle3 = datan2(dsqrt(dot3(c, c)), dot3(u, v))
+    return
+  end function angle3
+
+  subroutine densify_polygon(poly)
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+! Split every edge longer than edge_long into short great-circle segments
+! whose vertices lie on the straight RA/Dec line between the original
+! vertices, so that point_in_polygon and polygon_area follow that line to
+! within edge_tol. Shorter edges stay single great circles.
+!
+! A great circle's departure from the RA/Dec line grows as the square of
+! its length, so an edge whose midpoint departs by dev needs
+! ceiling(sqrt(dev/edge_tol)) segments.
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+! INPUT/OUTPUT
+!     poly  : Closed polygon structure (polygon), RA/Dec [rad]
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+!f2py intent(in,out) poly
+    implicit none
+
+    type(t_polygon), intent(inout) :: poly
+    type(t_polygon) :: dense
+    integer :: nseg(n_e_max), i, j, k, n, total
+    real (kind=8) :: dev(n_e_max), tol, u1(3), u2(3), g(3), m(3)
+    logical, save :: warned = .false.
+
+    n = poly%n
+    if (n .lt. 2) return
+    do i = 1, n
+       call ra_dec_to_xyz(poly%x(i), poly%y(i), u1)
+       call ra_dec_to_xyz(poly%x(i+1), poly%y(i+1), u2)
+       dev(i) = -1.d0
+       if (angle3(u1, u2) .gt. edge_long) then
+          g = u1 + u2
+          g = g/dsqrt(dot3(g, g))
+          call ra_dec_to_xyz(0.5d0*(poly%x(i) + poly%x(i+1)), &
+               0.5d0*(poly%y(i) + poly%y(i+1)), m)
+          dev(i) = angle3(g, m)
+       end if
+    end do
+
+    tol = edge_tol
+100 continue
+    total = 0
+    do i = 1, n
+       nseg(i) = 1
+       if (dev(i) .gt. tol) nseg(i) = ceiling(dsqrt(dev(i)/tol))
+       total = total + nseg(i)
+    end do
+    if (total .gt. n_e_max - 1) then
+       if (.not. warned) then
+          write (6, *) 'densify_polygon: too many vertices, loosening ', &
+               'edge tolerance beyond', edge_tol*206264.8062d0, ' arcsec'
+          warned = .true.
+       end if
+       tol = 2.d0*tol
+       goto 100
+    end if
+    if (total .eq. n) return
+
+    k = 0
+    do i = 1, n
+       do j = 0, nseg(i) - 1
+          k = k + 1
+          dense%x(k) = poly%x(i) + (poly%x(i+1) - poly%x(i))*dble(j)/dble(nseg(i))
+          dense%y(k) = poly%y(i) + (poly%y(i+1) - poly%y(i))*dble(j)/dble(nseg(i))
+       end do
+    end do
+    dense%n = k
+    dense%x(k+1) = dense%x(1)
+    dense%y(k+1) = dense%y(1)
+    poly = dense
+    return
+  end subroutine densify_polygon
 
   real (kind=8) function dot3(u, v)
     implicit none

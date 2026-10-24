@@ -30,6 +30,10 @@ module getsur
   integer, save :: survey_cache_det_req(max_survey_cache)
   integer, save :: survey_cache_epoch_n(max_epochs, max_survey_cache)
   integer, save :: survey_cache_epoch_off(max_epochs, max_survey_cache)
+  ! Edge convention applied by read_sur: .true. (survey.conf 'edges = radec',
+  ! the default) makes long edges follow the straight RA/Dec line;
+  ! .false. ('edges = great_circle') keeps single great circles.
+  logical, save :: radec_edges = .true.
 
 contains
 
@@ -658,20 +662,24 @@ contains
     pointing_file_open = .false.
   end subroutine close_jpl_ephemeris
 
-  subroutine read_survey_conf(root, detections_required, ierr)
+  subroutine read_survey_conf(root, detections_required, edges_radec, ierr)
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
-! Read survey.conf from survey root. Missing file => detections_required=1.
-! Format: key = value lines (same style as .eff). Only detections_required
-! is recognized today.
+! Read survey.conf from survey root. Missing file => detections_required=1,
+! edges_radec=.true.
+! Format: key = value lines (same style as .eff). Recognized keys:
+!     detections_required = <integer>
+!     edges = radec | great_circle
 !-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
     implicit none
     character(*), intent(in) :: root
     integer, intent(out) :: detections_required, ierr
+    logical, intent(out) :: edges_radec
     character(path_len) :: fname, line
     character(path_len) :: word(nw_max)
     integer :: lun, ios, eq_ind, nw, lw(nw_max), val
 
     detections_required = 1
+    edges_radec = .true.
     ierr = 0
     if (len_trim(root) + len('/survey.conf') > path_len) then
        write (6, *) 'read_survey_conf: path too long'
@@ -716,6 +724,21 @@ contains
           return
        end if
        detections_required = val
+    else if (word(1)(1:lw(1)) == 'edges') then
+       call parse(line(eq_ind+1:), nw_max, nw, word, lw)
+       if (nw /= 1) word(1) = ' '
+       if (nw /= 1) lw(1) = 1
+       if (word(1)(1:lw(1)) == 'radec') then
+          edges_radec = .true.
+       else if (word(1)(1:lw(1)) == 'great_circle') then
+          edges_radec = .false.
+       else
+          write (6, *) 'read_survey_conf: edges must be radec or ', &
+               'great_circle in ', fname(1:len_trim(fname))
+          ierr = 20
+          close (lun)
+          return
+       end if
     end if
     goto 100
 200 continue
@@ -840,6 +863,7 @@ contains
     type(t_pointing) :: ep_points(n_sur_max)
     real (kind=8) :: ep_mm(n_sur_max)
     integer :: ie, n_ep, j, ierr2
+    logical :: edges_radec
 
     n_sur = 0
     n_epochs = 0
@@ -857,7 +881,7 @@ contains
        return
     end if
 
-    call read_survey_conf(root, detections_required, ierr2)
+    call read_survey_conf(root, detections_required, edges_radec, ierr2)
     if (ierr2 /= 0) then
        ierr = ierr2
        return
@@ -876,16 +900,20 @@ contains
        return
     end if
 
+    ! A direct GetSurvey call outside a survey root always gets radec edges.
+    radec_edges = edges_radec
     do ie = 1, n_epochs
        call GetSurvey(epoch_dirs(ie)(1:len_trim(epoch_dirs(ie))), lun_s, &
             n_ep, ep_points, ep_mm, ierr2)
        if (ierr2 /= 0) then
           ierr = ierr2
+          radec_edges = .true.
           return
        end if
        if (n_sur + n_ep > n_sur_max) then
           write (6, *) 'LoadSurveyRoot: total pointings exceed n_sur_max'
           ierr = 100
+          radec_edges = .true.
           return
        end if
        call apply_survey_name(ep_points, n_ep, survey_name)
@@ -897,6 +925,7 @@ contains
        end do
        n_sur = n_sur + n_ep
     end do
+    radec_edges = .true.
     return
   end subroutine LoadSurveyRoot
 
@@ -1125,6 +1154,11 @@ contains
     else if (word(1)(1:4) .eq. 'poly') then
        if (nw .lt. 8) goto 2000
        read (word(2), *, err=2000) point%poly%n
+       if ((point%poly%n .lt. 3) .or. (point%poly%n .gt. n_e_max - 1)) then
+          write (6, *) 'read_sur: poly vertex count must be 3 to ', &
+               n_e_max - 1, ', got ', point%poly%n
+          goto 2000
+       end if
        j = index(word(3), ':')
        if (j .le. 0) then
           read (word(3), *, err=2000) ra
@@ -1167,6 +1201,7 @@ contains
        call create_rectangle(w, h, ra, dec, point%poly)
     end if
     call check_polygon(point%poly)
+    if (radec_edges) call densify_polygon(point%poly)
     read (word(5), *, err=2000) point%o_pos(1)%jday
     read (word(6), *, err=2000) point%ff
     call get_code(word(7), dirn, point%code)

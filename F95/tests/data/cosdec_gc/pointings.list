@@ -1,0 +1,3 @@
+# Same 8 deg x 1 deg strip as cosdec_survey pointing 9, but survey.conf
+# selects edges = great_circle, so the strip is not densified.
+rect 8.0 1.0 300.0 60.0 2456391.5 1.0 500 cosdec.eff

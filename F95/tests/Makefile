@@ -4,7 +4,8 @@ LANGUAGE = F95
 
 %: %.sh
 
-test: clean $(MODELS) HST test_eta_rate test_polygon_area test_pointing_geom
+test: clean $(MODELS) HST test_eta_rate test_polygon_area test_pointing_geom \
+	test_cosdec_footprint
 
 $(MODELS): clean
 	$(MAKE) -s -C ../ Driver GIMEOBJ=$@ 
@@ -40,11 +41,21 @@ test_pointing_geom:
 	\rm -f test_pointing_geom
 	$(MAKE) -s -C ../ rmtmp
 
-.PHONY: $(MODELS) test_eta_rate test_polygon_area test_pointing_geom
+# Unit test for cos(dec) footprint construction and point_in_polygon
+test_cosdec_footprint:
+	$(MAKE) -s -C ../ libsrc.a
+	gfortran -O0 -I../ -o test_cosdec_footprint test_cosdec_footprint.f95 -L../ -lsrc
+	./test_cosdec_footprint
+	\rm -f test_cosdec_footprint
+	$(MAKE) -s -C ../ rmtmp
+
+.PHONY: $(MODELS) test_eta_rate test_polygon_area test_pointing_geom \
+	test_cosdec_footprint
 
 .DEFAULT:
 
 .PHONY: clean
 
 clean:
-	\rm -f ModelUsed.dat SimulDetect.dat SimulTrack.dat LOG test test_polygon_area test_pointing_geom
+	\rm -f ModelUsed.dat SimulDetect.dat SimulTrack.dat LOG test test_polygon_area test_pointing_geom \
+	test_cosdec_footprint
