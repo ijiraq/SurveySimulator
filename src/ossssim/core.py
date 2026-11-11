@@ -5,7 +5,7 @@ The OSSOS Survey Simulator module.  This is front-end for the OSSSim.  The prima
 import logging
 from astropy import units as u
 from astropy.units import Quantity
-from astropy.table import Row
+from astropy.table import Row, Table
 from astropy.time import Time
 
 from .color import PhotSpec
@@ -52,6 +52,29 @@ def _light_curve_value(row, key):
         if value:
             return value
     return _LIGHT_CURVE_DEFAULTS[key]
+
+
+_OUTPUT_UNITS = {'RA': u.rad, 'DEC': u.rad, 'r': u.au, 'delta': u.au, 'm_int': u.mag,
+                 'm_rand': u.mag, 'Mt': u.rad, 'h_rand': u.mag}
+_CARTESIAN_UNITS = {'x': u.au, 'y': u.au, 'z': u.au,
+                    'vx': u.au / u.year, 'vy': u.au / u.year, 'vz': u.au / u.year}
+
+
+def _survey_key(codes) -> str:
+    """Detection key from the character codes Detos_batch returns for one object."""
+    return codes.astype(numpy.uint8).tobytes().decode('utf-8').rstrip(' \x00')
+
+
+def _is_chunk(targets) -> bool:
+    """True for a table or a mapping of arrays, False for a single row."""
+    if isinstance(targets, Table):
+        return True
+    if isinstance(targets, Row):
+        return False
+    try:
+        return numpy.ndim(targets['a']) > 0
+    except (KeyError, TypeError, IndexError):
+        return False
 
 
 class Cartesian(object):
@@ -101,17 +124,18 @@ class Cartesian(object):
         sim = self.initialize_sim()
         rows = kwargs['rows']
         M = 'Mt' in rows and 'Mt' or 'M'
-        for idx in range(len(rows['a'])):
-            sim.add(a=rows['a'][idx].to('au').value,
-                    e=rows['e'][idx],
-                    inc=rows['inc'][idx].to('rad').value,
-                    Omega=rows['node'][idx].to('rad').value,
-                    omega=rows['peri'][idx].to('rad').value,
-                    M=rows[M][idx].to('rad').value,
-                    )
+        a = rows['a'].to_value(u.au)
+        inc = rows['inc'].to_value(u.rad)
+        node = rows['node'].to_value(u.rad)
+        peri = rows['peri'].to_value(u.rad)
+        mean_anomaly = rows[M].to_value(u.rad)
+        for idx in range(len(a)):
+            sim.add(a=a[idx], e=rows['e'][idx], inc=inc[idx], Omega=node[idx], omega=peri[idx],
+                    M=mean_anomaly[idx])
 
+        particles = sim.particles[5:]
         for s in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
-            rows[s] = [p.__getattribute__(s) * definitions.column_unit[s] for p in sim.particles[5:]]
+            rows[s] = Quantity([p.__getattribute__(s) for p in particles], definitions.column_unit[s])
         return rows
 
     def single_row(self, **kwargs):
@@ -121,20 +145,32 @@ class Cartesian(object):
         Returns:
             dictionary of x/y/z/vx/vy/vz
         """
-        sim = self.initialize_sim()
-        sim.add(a=kwargs['a'].to('au').value,
-                e=kwargs['e'],
-                inc=kwargs['inc'].to('rad').value,
-                Omega=kwargs['node'].to('rad').value,
-                omega=kwargs['peri'].to('rad').value,
-                M=kwargs.get('Mt', kwargs.get('M')).to('rad').value
-                )
+        state = self.state(kwargs['a'].to('au').value,
+                           kwargs['e'],
+                           kwargs['inc'].to('rad').value,
+                           kwargs['node'].to('rad').value,
+                           kwargs['peri'].to('rad').value,
+                           kwargs.get('Mt', kwargs.get('M')).to('rad').value)
         cartesian = {}
         for s in ['x', 'y', 'z']:
-            cartesian[s] = sim.particles[-1].__getattribute__(s) * u.au
+            cartesian[s] = Quantity(state[s], u.au)
         for s in ['vx', 'vy', 'vz']:
-            cartesian[s] = sim.particles[-1].__getattribute__(s) * (2 * numpy.pi) * u.au / u.year
+            cartesian[s] = Quantity(state[s], u.au / u.year)
         return cartesian
+
+    def state(self, a, e, inc, node, peri, M) -> dict:
+        """
+        Cartesian state of one orbit as plain floats: x/y/z [au] and vx/vy/vz [au/yr].
+
+        Elements are in au and radians.
+        """
+        sim = self.initialize_sim()
+        sim.add(a=a, e=e, inc=inc, Omega=node, omega=peri, M=M)
+        particle = sim.particles[-1]
+        state = {s: particle.__getattribute__(s) for s in ['x', 'y', 'z']}
+        for s in ['vx', 'vy', 'vz']:
+            state[s] = particle.__getattribute__(s) * (2 * numpy.pi)
+        return state
 
 
 class OSSSSim:
@@ -160,9 +196,8 @@ class OSSSSim:
         self.cartesian = Cartesian(epoch=definitions.Neptune['Epoch'])
         self.seed = seed 
         ossssimlib.surveysub.reset_simulator()
-        # One t_orb_m reused for every call; simulate() sets all of its fields each time.
-        self._o_m = ossssimlib.datadec.t_orb_m()
         self._epoch_jd = (None, None)
+        self._row_buffers = None
 
 
     def simulate(self, row: dict, colors: PhotSpec, model_band, seed=None, epoch=None, debug=False) -> dict:
@@ -176,8 +211,15 @@ class OSSSSim:
         OSSSSim per epoch: ``__init__`` calls ``reset_simulator()`` and would
         reseed the RNG.
 
+        row can also be a chunk of targets: a Table/QTable (e.g. ``table[0:1000]`` or a chunk from
+        ``model.iter_chunks()``) or a dict of equal-length arrays. A chunk is simulated with a single
+        call into the Fortran code, which is much faster than one call per row, and gives the same
+        values as simulating its rows one at a time in order. The result is the same kind of object:
+        a QTable chunk returns a QTable, a dict of arrays returns a dict of arrays. In a chunk,
+        x/y/z/vx/vy/vz of undetected targets keep their input values, or are NaN if the input had none.
+
         Args:
-            row (Row or dict): elements of the target to simulate
+            row (Row or dict or Table): elements of the target (or targets) to simulate
             colors (PhotSpec): colors of the target index by 'g-x' etc, see below.
             model_band (str): a single letter designator of the bandpass that the H values are provided in.
             seed (int): a seed to pass to the fortran code to allow reproducible simulations
@@ -185,7 +227,7 @@ class OSSSSim:
             debug (bool): if True, have Fortran detos routine create a log of detection process.
 
         Returns:
-            Row or dict: the target elements/values at time of simulated detection.
+            dict (or chunk): the target elements/values at time of simulated detection.
 
         row should have values for a, e, inc, node, peri, M, H, [epoch]
         can, optionally, also define: gb, phase, period, amplitude
@@ -232,33 +274,18 @@ class OSSSSim:
         if seed is not None:
             logging.warning('seed is now set in the constructor. ignored here')
 
-        # pack the orbit into a t_orb_m object to pass to fortran module.
-        o_m = self._o_m
+        if _is_chunk(row):
+            return self._simulate_chunk(row, colors, model_band, epoch, debug)
+        return self._simulate_row(row, colors, model_band, epoch, debug)
+
+    def _simulate_row(self, row, colors: PhotSpec, model_band, epoch, debug) -> dict:
+        """simulate() for a single row: the row is passed to Fortran as a chunk of one."""
         row = dict(row)
         elements = {}
         for colname, value in row.items():
             field = colname.lower()
             if field in T_ORB_M_FIELDS:
                 elements[field] = _to_value(value, T_ORB_M_UNITS.get(colname))
-        for field in T_ORB_M_FIELDS:
-            setattr(o_m, field, elements.get(field, 0.0))
-
-        # attempt to detect this object
-        color_offset_array = colors.colors_array(row['comp'], model_band)
-        if 'epoch' in row.keys():
-            epoch_jd = row['epoch']
-        else:
-            epoch_jd = epoch
-        if isinstance(epoch_jd, Quantity):
-            epoch_jd = _to_value(epoch_jd, u.day)
-        if isinstance(epoch_jd, Time):
-            if self._epoch_jd[0] is not epoch_jd:
-                self._epoch_jd = (epoch_jd, epoch_jd.jd)
-            epoch_jd = self._epoch_jd[1]
-        gb = _light_curve_value(row, 'gb')
-        phase = _light_curve_value(row, 'phase')
-        period = _light_curve_value(row, 'period')
-        amplitude = _light_curve_value(row, 'amplitude')
         H = None
         if 'H' in row:
             H = _to_value(row['H'], u.mag) or None
@@ -267,74 +294,50 @@ class OSSSSim:
         if H is None:
             raise ValueError("H or h must be provided to simulate")
 
-        row['flag'], row['RA'], row['DEC'], row['d_ra'], row['d_dec'], row['r'], row['delta'], \
-            row['m_int'], row['m_rand'], row['eff'], isur, row['Mt'], jdayp, ic, row['Survey'], \
-            row['h_rand'], ierr = \
-            ossssimlib.surveysub.detos1(o_m,
-                                           epoch_jd,
-                                           H,
-                                           color_offset_array,
-                                           gb,
-                                           phase,
-                                           period,
-                                           amplitude,
-                                           self.characterization_directory,
-                                           self.seed,
-                                           debug)
-        if ierr != 0:
-            raise IOError(f"SSim failed with error code: {ierr}")
+        # One-element input and output arrays, reused for every single-row call.
+        if self._row_buffers is None:
+            self._row_buffers = ([numpy.zeros(1) for _ in T_ORB_M_FIELDS], numpy.zeros(1), numpy.zeros(1),
+                                 [numpy.zeros(1) for _ in _LIGHT_CURVE_UNITS], self._output_buffers(1))
+        element_buffers, jday, H_buffer, light_curve, out = self._row_buffers
+        for buffer, field in zip(element_buffers, T_ORB_M_FIELDS):
+            buffer[0] = elements.get(field, 0.0)
+        jday[0] = self._jd(row['epoch'] if 'epoch' in row.keys() else epoch)
+        H_buffer[0] = H
+        for buffer, key in zip(light_curve, _LIGHT_CURVE_UNITS):
+            buffer[0] = _light_curve_value(row, key)
+        color = colors.colors_array(row['comp'], model_band).reshape(-1, 1)
+
+        self._detos(element_buffers, jday, H_buffer, color, light_curve, debug, out)
+        flag = int(out['flag'][0])
+        ic = int(out['ic'][0])
+        row['flag'] = flag
+        for name in ('RA', 'DEC', 'd_ra', 'd_dec', 'r', 'delta', 'm_int', 'm_rand', 'eff', 'Mt'):
+            unit = _OUTPUT_UNITS.get(name)
+            row[name] = float(out[name][0]) if unit is None else Quantity(out[name][0], unit)
+        row['Survey'] = _survey_key(out['survey_codes'][:, 0])
+        row['h_rand'] = Quantity(out['h_rand'][0], u.mag)
         row['j'] = row.get('j', 0)
         row['k'] = row.get('k', 0)
-        row['delta'] = Quantity(row['delta'], u.au)
-        row['r'] = Quantity(row['r'], u.au)
-        row['m_int'] = Quantity(row['m_int'], u.mag)
-        row['m_rand'] = Quantity(row['m_rand'], u.mag)
-        row['h_rand'] = Quantity(row['h_rand'], u.mag)
-        # ic is the 1-based Fortran filter_to_index of the discovery bandpass.
-        # Convert to band letter and look up the matching 0-based colors_list slot.
-        if ic > 0:
-            band = chr(ic + ord('A') - 1)
-            row['band'] = band
-            row['color'] = Quantity(color_offset_array[ord(band) - ord('A')], u.mag)
-        else:
-            row['band'] = ''
-            row['color'] = Quantity(0, u.mag)
+        # ic is the 1-based Fortran filter_to_index of the discovery bandpass: convert it to the
+        # band letter and look up the matching 0-based colors_list slot.
+        row['band'] = chr(ic + ord('A') - 1) if ic > 0 else ''
+        row['color'] = Quantity(color[ic - 1, 0] if ic > 0 else 0.0, u.mag)
         row['q'] = row['a'] * (1 - row['e'])
-        row['Mt'] = Quantity(row['Mt'], u.rad)
-        row['RA'] = Quantity(row['RA'], u.rad)
-        row['DEC'] = Quantity(row['DEC'], u.rad)
-        row['Survey'] = row['Survey'].decode('utf-8')
-        if row['flag'] > 0:
-            row.update(self.cartesian(**row))
+        if flag > 0:
+            state = self.cartesian.state(*(buffer[0] for buffer in element_buffers[:5]), out['Mt'][0])
+            for s, unit in _CARTESIAN_UNITS.items():
+                row[s] = Quantity(state[s], unit)
 
         # m_int and h are in "x" band (filter of object creation)
         # m_rand and h_rand are in discovery filter
         return row
 
-    def simulate_batch(self, columns, colors: PhotSpec, model_band, epoch=None, debug=False) -> dict:
-        """
-        Run detos1 on many targets with one call into the Fortran library.
-
-        Args:
-            columns (dict or QTable): equal-length columns with the names simulate() takes for a row:
-                a, e, inc, node, peri, M, H (or h) and comp, and optionally epoch, gb, phase, period,
-                amplitude, j and k. Quantity columns are converted to the units the Fortran code uses;
-                plain arrays are taken to be in those units already (au, rad, mag, day).
-            colors (PhotSpec): colors of the targets, see simulate().
-            model_band (str): bandpass of the H values.
-            epoch (Quantity or float or Time): JD of the elements when there is no epoch column.
-            debug (bool): if True, have the Fortran detos routine log the detection process.
-
-        Returns:
-            dict: the input columns plus the columns simulate() adds, as arrays. x, y, z, vx, vy, vz
-            are computed for detected targets (flag > 0) and are NaN otherwise.
-
-        The values are the same as calling simulate() on each row in order.
-        """
-        result = {name: columns[name] for name in columns.keys()}
+    def _simulate_chunk(self, chunk, colors: PhotSpec, model_band, epoch, debug):
+        """simulate() for a chunk of rows; returns the same kind of container it was given."""
+        result = {name: chunk[name] for name in chunk.keys()}
         n = len(result['a'])
         if n == 0:
-            raise ValueError("simulate_batch needs at least one target")
+            raise ValueError("simulate needs at least one target")
 
         names = {}
         for name in result:
@@ -349,17 +352,13 @@ class OSSSSim:
                 elements.append(numpy.zeros(n))
 
         epoch_jd = result['epoch'] if 'epoch' in result else epoch
-        if isinstance(epoch_jd, Quantity):
-            epoch_jd = _to_value(epoch_jd, u.day)
-        if isinstance(epoch_jd, Time):
-            epoch_jd = epoch_jd.jd
-        jday = numpy.ascontiguousarray(numpy.broadcast_to(epoch_jd, (n,)), dtype=numpy.float64)
+        jday = numpy.ascontiguousarray(numpy.broadcast_to(self._jd(epoch_jd), (n,)), dtype=numpy.float64)
 
         light_curve = []
-        for key in ('gb', 'phase', 'period', 'amplitude'):
+        for key, unit in _LIGHT_CURVE_UNITS.items():
             default = _LIGHT_CURVE_DEFAULTS[key]
             if key in result:
-                value = numpy.asarray(_to_value(result[key], _LIGHT_CURVE_UNITS[key]), dtype=numpy.float64)
+                value = numpy.asarray(_to_value(result[key], unit), dtype=numpy.float64)
                 value = numpy.where(value != 0, value, default)
             else:
                 value = default
@@ -378,48 +377,66 @@ class OSSSSim:
         comp_colors = numpy.stack([colors.colors_array(str(comp), model_band) for comp in comps], axis=1)
         color = numpy.asfortranarray(comp_colors[:, comp_index.reshape(-1)])
 
-        flag, isur, ic = (numpy.zeros(n, dtype=numpy.int32) for _ in range(3))
-        ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, mt, jdayp, h_rand = \
-            (numpy.zeros(n) for _ in range(12))
-        survey_codes = numpy.zeros((_SURVEY_KEY_CODES, n), dtype=numpy.int32, order='F')
-        ierr = ossssimlib.surveysub.detos_batch(n, _SURVEY_KEY_CODES, *elements, jday, H, color,
-                                                *light_curve, self.characterization_directory,
-                                                self.seed, debug,
-                                                flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand,
-                                                eff, isur, mt, jdayp, ic, survey_codes, h_rand)
-        if ierr != 0:
-            raise IOError(f"SSim failed with error code: {ierr}")
-
+        out = self._output_buffers(n)
+        self._detos(elements, jday, H, color, light_curve, debug, out)
+        flag, ic = out['flag'], out['ic']
+        detected = flag > 0
         result['flag'] = flag
-        result['RA'] = Quantity(ra, u.rad)
-        result['DEC'] = Quantity(dec, u.rad)
-        result['d_ra'] = d_ra
-        result['d_dec'] = d_dec
-        result['r'] = Quantity(r, u.au)
-        result['delta'] = Quantity(delta, u.au)
-        result['m_int'] = Quantity(m_int, u.mag)
-        result['m_rand'] = Quantity(m_rand, u.mag)
-        result['eff'] = eff
-        result['Mt'] = Quantity(mt, u.rad)
-        result['h_rand'] = Quantity(h_rand, u.mag)
-        result['Survey'] = numpy.array([bytes(code).decode('utf-8').rstrip(' \x00')
-                                        for code in survey_codes.T.astype(numpy.uint8)])
+        for name in ('RA', 'DEC', 'd_ra', 'd_dec', 'r', 'delta', 'm_int', 'm_rand', 'eff', 'Mt'):
+            unit = _OUTPUT_UNITS.get(name)
+            result[name] = out[name] if unit is None else Quantity(out[name], unit)
+        result['Survey'] = numpy.array([_survey_key(codes) for codes in out['survey_codes'].T])
+        result['h_rand'] = Quantity(out['h_rand'], u.mag)
         result['j'] = result.get('j', numpy.zeros(n, dtype=int))
         result['k'] = result.get('k', numpy.zeros(n, dtype=int))
-        detected_band = ic > 0
-        result['band'] = numpy.where(detected_band, [chr(c + ord('A') - 1) if c > 0 else '' for c in ic], '')
-        result['color'] = Quantity(numpy.where(detected_band, color[numpy.maximum(ic - 1, 0), numpy.arange(n)], 0.0),
+        result['band'] = numpy.array([chr(c + ord('A') - 1) if c > 0 else '' for c in ic])
+        result['color'] = Quantity(numpy.where(ic > 0, color[numpy.maximum(ic - 1, 0), numpy.arange(n)], 0.0),
                                    u.mag)
         result['q'] = result['a'] * (1 - result['e'])
 
-        cartesian = {s: numpy.full(n, numpy.nan) for s in ('x', 'y', 'z', 'vx', 'vy', 'vz')}
-        for i in numpy.flatnonzero(flag > 0):
-            state = self.cartesian(a=result['a'][i], e=result['e'][i], inc=result['inc'][i],
-                                   node=result['node'][i], peri=result['peri'][i], Mt=result['Mt'][i])
-            for s in cartesian:
-                cartesian[s][i] = state[s].value
-        for s in ('x', 'y', 'z'):
-            result[s] = Quantity(cartesian[s], u.au)
-        for s in ('vx', 'vy', 'vz'):
-            result[s] = Quantity(cartesian[s], u.au / u.year)
+        state = {s: numpy.full(n, numpy.nan) for s in _CARTESIAN_UNITS}
+        for i in numpy.flatnonzero(detected):
+            for s, value in self.cartesian.state(*(element[i] for element in elements[:5]),
+                                                 out['Mt'][i]).items():
+                state[s][i] = value
+        for s, unit in _CARTESIAN_UNITS.items():
+            values = state[s]
+            if s in result:
+                # Keep the model's own state vector for objects that were not detected.
+                values = numpy.where(detected, values, numpy.asarray(_to_value(result[s], unit), dtype=numpy.float64))
+            result[s] = Quantity(values, unit)
+
+        if isinstance(chunk, Table):
+            return type(chunk)(result, meta=chunk.meta)
         return result
+
+    def _jd(self, epoch):
+        """JD of an epoch given as Time, Quantity or a plain number (or arrays of these)."""
+        if isinstance(epoch, Quantity):
+            return _to_value(epoch, u.day)
+        if isinstance(epoch, Time):
+            if self._epoch_jd[0] is not epoch:
+                self._epoch_jd = (epoch, epoch.jd)
+            return self._epoch_jd[1]
+        return epoch
+
+    @staticmethod
+    def _output_buffers(n) -> dict:
+        """Arrays for the Detos_batch outputs of n objects."""
+        out = {name: numpy.zeros(n, dtype=numpy.int32) for name in ('flag', 'isur', 'ic')}
+        for name in ('RA', 'DEC', 'd_ra', 'd_dec', 'r', 'delta', 'm_int', 'm_rand', 'eff', 'Mt', 'jdayp', 'h_rand'):
+            out[name] = numpy.zeros(n)
+        out['survey_codes'] = numpy.zeros((_SURVEY_KEY_CODES, n), dtype=numpy.int32, order='F')
+        return out
+
+    def _detos(self, elements, jday, H, color, light_curve, debug, out):
+        """Run Detos_batch on plain arrays (au, radians, mag, days), filling the arrays in out."""
+        ierr = ossssimlib.surveysub.detos_batch(len(jday), _SURVEY_KEY_CODES, *elements, jday, H, color,
+                                                *light_curve, self.characterization_directory,
+                                                self.seed, debug,
+                                                out['flag'], out['RA'], out['DEC'], out['d_ra'], out['d_dec'],
+                                                out['r'], out['delta'], out['m_int'], out['m_rand'], out['eff'],
+                                                out['isur'], out['Mt'], out['jdayp'], out['ic'],
+                                                out['survey_codes'], out['h_rand'])
+        if ierr != 0:
+            raise IOError(f"SSim failed with error code: {ierr}")

@@ -21,7 +21,7 @@ from . import definitions
 from . import distributions
 from . import color
 from .color import PhotSpec
-from .core import Cartesian
+from .core import Cartesian, _is_chunk
 
 T_ORB_M_UNITS = definitions.T_ORB_M_UNITS
 RE_FLOAT = re.compile('[+-]?\d+\.?\d*[de]?\d*')
@@ -144,12 +144,17 @@ class OSSSSimFile(ABC):
 
     def write_row(self, row):
         """
-        Append a row to the file.
+        Append a row, or every row of a chunk (a Table or a dict of arrays), to the file.
 
         The first row of a new file goes through astropy so that the ECSV header is
         written. Later rows are formatted the way astropy's no_header writer would
         format them and appended directly; they are not kept in ``table``.
         """
+        if _is_chunk(row):
+            names = list(row.keys())
+            for i in range(len(row[names[0]])):
+                self.write_row({name: row[name][i] for name in names})
+            return
         if getattr(self, '_row_stream', None) is None:
             if not os.access(self.filename, os.F_OK):
                 self.append(row)
@@ -480,11 +485,10 @@ class ModelFileOld(ModelFile):
 
     def iter_chunks(self, size: int = 10000):
         """
-        Yield the model in chunks of up to size rows, each a dict of columns.
+        Yield the model in chunks of up to size rows, each a QTable.
 
-        Columns with a unit are Quantity arrays, the others numpy arrays; empty fields
-        are NaN. Pass the chunks to OSSSSim.simulate_batch, which is much faster than
-        calling simulate() on each row.
+        Columns with a unit are Quantity columns; empty fields are NaN. Passing a
+        chunk to OSSSSim.simulate() is much faster than calling it on each row.
         """
         colnames = self.colnames
         while True:
@@ -506,9 +510,9 @@ class ModelFileOld(ModelFile):
     def _column_unit(self, colname):
         return definitions.column_unit.get(colname, None)
 
-    def _lines_to_columns(self, lines, colnames) -> dict:
+    def _lines_to_columns(self, lines, colnames) -> QTable:
         """
-        Parse data lines into columns, using the same field rules as _values_to_row.
+        Parse data lines into a QTable, using the same field rules as _values_to_row.
         """
         values = {colname: [] for colname in colnames}
         for line in lines:
@@ -539,7 +543,7 @@ class ModelFileOld(ModelFile):
             if unit is not None and array.dtype.kind in 'iuf':
                 array = Quantity(array, unit)
             columns[colname] = array
-        return columns
+        return QTable(columns, copy=False)
 
     @property
     def table(self):
@@ -1130,6 +1134,21 @@ class Parametric(OSSSSimFile):
             self._init_elements()
             row = next(self.iter)
         return dict(row)
+
+    def iter_chunks(self, size: int = 1000):
+        """
+        Yield chunks of up to size targets (QTable slices of the targets table).
+
+        When the table has been used up a new distribution is drawn, as when
+        iterating row by row, so this never ends: stop on your own counts. A chunk
+        never spans two distributions, so it holds at most self.size targets. Use
+        either this or row iteration on a model, not both.
+        """
+        while True:
+            targets = self.targets
+            for start in range(0, len(targets), size):
+                yield targets[start:start + size]
+            self._init_elements()
 
 
 class Implanted(Parametric, ABC):
