@@ -14,41 +14,46 @@ import sys,os,logging
 import optparse, re
 import numpy
 
-def ad_bootstrap(s:numpy.array, m:numpy.array, n_bootstraps:int = 1000) -> float:
+def ad_bootstrap(s:numpy.array, m:numpy.array, n_bootstraps:int = 1000, seed=None) -> float:
 	"""See if s is from m via AD using a bootstrap.
 
-	s: sorted ndarray of sample data
-	m: sorted ndarray of model data
+	s: ndarray of sample data (any order)
+	m: ndarray of model data (any order)
 	n_bootstraps: number of bootstrap iterations to use (default 1000)
+	seed: optional seed for the bootstrap random number generator
 	"""
 
-	rng = numpy.random.default_rng()
+	rng = numpy.random.default_rng(seed)
+	s = numpy.sort(numpy.asarray(s, dtype=float))
+	m = numpy.sort(numpy.asarray(m, dtype=float))
 	if m[-1]<s[-1] or s[0]<m[0]:
 		raise ValueError("Model and sample do not overlap")
 	n_sample_pts = len(s)
-	sdf = numpy.array([ad(rng.choice(m, n_sample_pts), m) for i in range(n_bootstraps)])
-	sdf.sort()
+	sdf = numpy.array([ad(numpy.sort(rng.choice(m, n_sample_pts)), m) for i in range(n_bootstraps)])
 	x = ad(s, m)
 	p = float((sdf>x).sum())/len(sdf)
 	return p
 
 def ad(s:numpy.array, m:numpy.array) -> float:
 	"""Compute A-D for s from m where s and m are sorted arrays"""
-	S = 0
 	n_sample_pts = len(s)
-	for j in range(n_sample_pts):
-		s1 = numpy.log(cdf(s[j],m))
-		s1 += numpy.log(1-cdf(s[n_sample_pts-1-j],m))
-		s1 = (2*(j+1)-1)*s1
-		S+=s1
+	F = cdf(s, m)
+	j = numpy.arange(1, n_sample_pts+1)
+	S = ((2*j-1)*(numpy.log(F) + numpy.log(1-F[::-1]))).sum()
 	S /= n_sample_pts
 	return -n_sample_pts-S
 
 
-def cdf(x:float, y:numpy.array) -> float:
-	"""Given a sorted array of values (y) compute the CDF at value (x)"""
+def cdf(x, y:numpy.array):
+	"""Mid-point empirical CDF of the sorted array y at x.
+
+	Ties count half, so values within the range of y give a CDF strictly
+	inside (0, 1) and the logs in ad() stay finite.
+	"""
 	n = len(y)
-	return (n-(y>x).sum())/n
+	below = numpy.searchsorted(y, x, side='left')
+	at_or_below = numpy.searchsorted(y, x, side='right')
+	return (below + at_or_below)/(2.0*n)
 
 	
 if __name__ == "__main__":
@@ -106,7 +111,7 @@ if __name__ == "__main__":
 			if (len(cols)-1 < col[dataset]):
 				logger.error("Fewer than %d colums in file %s at row %d: skipping row" % (col[dataset],filename[dataset],row))
 				continue
-			if not re.match("^\d*(.(\d*))?$",cols[col[dataset]]):
+			if not re.match(r"^\d*(.(\d*))?$",cols[col[dataset]]):
 				logger.error("skipping row %d of file %s: column %d  contains bad values" % (row,filename[dataset],col[dataset]))
 				continue
 			try:

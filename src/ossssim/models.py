@@ -369,7 +369,7 @@ class ModelFileOld(ModelFile):
                         line = self._f_obj.readline()
                         if len(line) == 0:
                             raise EOFError
-                        if line[0] != "#":
+                        if line[0] != "#" and line.strip():
                             break
                     return line
                 except EOFError:
@@ -382,7 +382,7 @@ class ModelFileOld(ModelFile):
                     line = line.decode('utf-8')
                 if len(line) == 0:
                     raise StopIteration
-                if not line.startswith('#'):
+                if not line.startswith('#') and line.strip():
                     return line
 
     def _values_to_row(self, values) -> OrderedDict:
