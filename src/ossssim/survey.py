@@ -56,14 +56,13 @@ class Pointing:
         rate = self.rate_mid_asphr if rate_asphr is None else float(rate_asphr)
         lib = self._lib or ossssimlib.surveysub
         arr = np.asarray(mag, dtype=float)
+        # Scalars also go through pointing_eta_grid: f90wrap returns pointing_eta's
+        # (result, maglim) tuple in an order that changed between f90wrap releases.
+        mags = np.ascontiguousarray(arr.ravel())
+        etas = np.empty(mags.size, dtype=float)
+        lib.pointing_eta_grid(self.index, mags, mags.size, rate, etas)
         if arr.ndim == 0:
-            # f90wrap returns intent(out) maglim before the function result
-            _maglim, eta = lib.pointing_eta(self.index, float(arr), rate)
-            return float(eta)
-        etas = np.empty(arr.size, dtype=float)
-        lib.pointing_eta_grid(
-            self.index, arr.ravel(), arr.size, rate, etas
-        )
+            return float(etas[0])
         return etas.reshape(arr.shape)
 
     def effective_area(
