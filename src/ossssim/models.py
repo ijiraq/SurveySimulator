@@ -58,6 +58,8 @@ class OSSSSimFile(ABC):
         self._table = None
         self._last_row_written = 0
         self._colors = self._longitude_neptune = None
+        self._photspec = None
+        self._row_stream = self._row_writer = self._row_formats = None
         self.mask_these_if_not_detected = copy.copy(definitions.observables)
 
     @property
@@ -122,7 +124,11 @@ class OSSSSimFile(ABC):
     @property
     def colors(self) -> PhotSpec:
         """Returns color array from file header or default if no color array in header."""
-        return PhotSpec(self.header['Colors'])
+        value = self.header['Colors']
+        cached = getattr(self, '_photspec', None)
+        if cached is None or cached.colors is not value:
+            cached = self._photspec = PhotSpec(value)
+        return cached
 
     @colors.setter
     def colors(self, value):
@@ -139,9 +145,55 @@ class OSSSSimFile(ABC):
     def write_row(self, row):
         """
         Append a row to the file.
+
+        The first row of a new file goes through astropy so that the ECSV header is
+        written. Later rows are formatted the way astropy's no_header writer would
+        format them and appended directly; they are not kept in ``table``.
         """
-        self.append(row)
-        self.write(self.filename, append=True)
+        if getattr(self, '_row_stream', None) is None:
+            if not os.access(self.filename, os.F_OK):
+                self.append(row)
+                self.write(self.filename, append=True)
+                return
+            self._open_row_stream()
+        self._row_writer.writerow(self._format_row(row))
+        self._row_stream.flush()
+
+    def _open_row_stream(self):
+        self._row_formats = []
+        for column_name in self.column_names:
+            column = self.table[column_name]
+            fmt = definitions.column_format.get(column_name, definitions.column_format['default'])
+            self._row_formats.append((column_name, column.unit, column.dtype.type, fmt,
+                                      column_name in self.mask_these_if_not_detected))
+        self._row_stream = open(self.filename, 'a')
+        self._row_writer = csv.writer(self._row_stream, delimiter=TABLE_COLUMN_DELIMITER,
+                                      quotechar='"', doublequote=True,
+                                      quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
+
+    def _close_row_stream(self):
+        if getattr(self, '_row_stream', None) is not None:
+            self._row_stream.close()
+        self._row_stream = self._row_writer = None
+
+    def _format_row(self, this_row) -> list:
+        """
+        Format one row as astropy's no_header writer does: cast to the column dtype,
+        apply the column format, strip padding, and leave masked values empty.
+        """
+        not_detected = this_row.get('flag', 0) < 1
+        fields = []
+        for column_name, unit, dtype, fmt, maskable in self._row_formats:
+            if column_name not in this_row:
+                raise ValueError(f"Column name {column_name} not found in {this_row}.")
+            if not_detected and maskable:
+                fields.append('')
+                continue
+            value = this_row[column_name]
+            if isinstance(value, Quantity):
+                value = value.value if unit is None else value.to_value(unit)
+            fields.append(format(dtype(value), fmt).strip())
+        return fields
 
     def append(self, this_row) -> None:
         """
@@ -190,6 +242,7 @@ class OSSSSimFile(ABC):
 
         This is done as a footer instead of header to allow streaming output.
         """
+        self._close_row_stream()
         with open(self.filename, 'a') as f_detect:
             f_detect.write(f'# Total number of objects:   {n_iter:>11d}\n')
             f_detect.write(f'# Number of detections:      {n_hits:>11d}\n')
@@ -239,7 +292,11 @@ class ModelFileOld(ModelFile):
         """
         Epoch of coordinates of orbit read from model file header.
         """
-        return Time(float(self.header['JD'][0].replace('d', 'e')), format='jd')
+        jd = self.header['JD'][0]
+        cached = getattr(self, '_epoch', None)
+        if cached is None or cached[0] != jd:
+            cached = self._epoch = (jd, Time(float(str(jd).replace('d', 'e')), format='jd'))
+        return cached[1]
 
     @epoch.setter
     def epoch(self, value: Time):
@@ -410,7 +467,7 @@ class ModelFileOld(ModelFile):
             except ValueError:
                 value = str(raw)
             if definitions.column_unit.get(colname, None) is not None:
-                value = value * definitions.column_unit[colname]
+                value = Quantity(value, definitions.column_unit[colname])
             row[colname] = value
         return row
 
@@ -420,6 +477,69 @@ class ModelFileOld(ModelFile):
         """
         line = self._read_next_data_line()
         return self._values_to_row(line.split())
+
+    def iter_chunks(self, size: int = 10000):
+        """
+        Yield the model in chunks of up to size rows, each a dict of columns.
+
+        Columns with a unit are Quantity arrays, the others numpy arrays; empty fields
+        are NaN. Pass the chunks to OSSSSim.simulate_batch, which is much faster than
+        calling simulate() on each row.
+        """
+        colnames = self.colnames
+        while True:
+            lines = []
+            try:
+                while len(lines) < size:
+                    lines.append(self._read_next_data_line())
+            except StopIteration:
+                pass
+            if not lines:
+                return
+            yield self._lines_to_columns(lines, colnames)
+            if len(lines) < size:
+                return
+
+    def _split_line(self, line) -> list:
+        return line.split()
+
+    def _column_unit(self, colname):
+        return definitions.column_unit.get(colname, None)
+
+    def _lines_to_columns(self, lines, colnames) -> dict:
+        """
+        Parse data lines into columns, using the same field rules as _values_to_row.
+        """
+        values = {colname: [] for colname in colnames}
+        for line in lines:
+            fields = self._split_line(line)
+            for idx, colname in enumerate(colnames):
+                try:
+                    raw = fields[idx]
+                except IndexError:
+                    if colname in ['j', 'k']:
+                        values[colname].append(0)
+                        continue
+                    raise
+                if raw is None or raw == '':
+                    values[colname].append(numpy.nan)
+                    continue
+                try:
+                    if '.' in raw:
+                        value = float(raw.replace('d', 'e'))
+                    else:
+                        value = int(raw)
+                except ValueError:
+                    value = str(raw)
+                values[colname].append(value)
+        columns = {}
+        for colname, column in values.items():
+            array = numpy.array(column)
+            unit = self._column_unit(colname)
+            if unit is not None and array.dtype.kind in 'iuf':
+                array = Quantity(array, unit)
+            columns[colname] = array
+        return columns
 
     @property
     def table(self):
@@ -560,9 +680,9 @@ class ModelFileEcsv(ModelFileOld, OSSSSimFile):
                 value = str(raw)
             unit = self._column_units.get(colname)
             if unit:
-                value = value * units.Unit(unit)
+                value = Quantity(value, unit)
             elif definitions.column_unit.get(colname, None) is not None:
-                value = value * definitions.column_unit[colname]
+                value = Quantity(value, definitions.column_unit[colname])
             row[colname] = value
         return row
 
@@ -576,8 +696,16 @@ class ModelFileEcsv(ModelFileOld, OSSSSimFile):
         # Ensure header parsed and file pointer / data offset are ready.
         _ = self.header
         line = self._read_next_data_line()
-        values = next(csv.reader([line.rstrip('\n')], delimiter=self._ecsv_delimiter))
-        return self._values_to_row(values)
+        return self._values_to_row(self._split_line(line))
+
+    def _split_line(self, line) -> list:
+        return next(csv.reader([line.rstrip('\n')], delimiter=self._ecsv_delimiter))
+
+    def _column_unit(self, colname):
+        unit = self._column_units.get(colname)
+        if unit:
+            return unit
+        return definitions.column_unit.get(colname, None)
 
     def __len__(self):
         return len(self.table)

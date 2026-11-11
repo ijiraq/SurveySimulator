@@ -623,6 +623,73 @@ contains
 
   end subroutine Detos1
 
+  subroutine Detos_batch (n, nk, a, e, inc, node, peri, m, jday, hx, color, &
+       gb, ph, period, amp, surnam, seed, enable_debug, &
+       flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand, eff, isur, mt, &
+       jdayp, ic, surna, h_rand, ierr)
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+! Call Detos1 for n objects. Arguments are those of Detos1 as arrays of
+! length n, except:
+!     a, e, inc, node, peri, m : the t_orb_m elements [AU, rad]
+!     color : colors of each object (58, n)
+!     surna : detection keys as character codes (nk, n), blank padded
+!     ierr  : 0, or the first non-zero Detos1 error; objects after the
+!             failing one are left unset.
+! seed is passed unchanged to every Detos1 call, so the random sequence
+! is the same as calling Detos1 once per object with the same seed.
+! Outputs are intent(inout) so the caller provides the arrays.
+!-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+!f2py intent(in) a, e, inc, node, peri, m, jday, hx, color
+!f2py intent(in) gb, ph, period, amp, surnam, seed, enable_debug, nk
+!f2py intent(hide), depend(a) :: n = len(a)
+!f2py intent(inout) flag, ra, dec, d_ra, d_dec, r, delta, m_int, m_rand
+!f2py intent(inout) eff, isur, mt, jdayp, ic, surna, h_rand
+!f2py intent(out) ierr
+    implicit none
+
+    integer, intent(in) :: n, nk, seed
+    real (kind=8), intent(in) :: a(n), e(n), inc(n), node(n), peri(n), m(n), &
+         jday(n), hx(n), color(58, n), gb(n), ph(n), period(n), amp(n)
+    character(*), intent(in) :: surnam
+    logical, intent(in) :: enable_debug
+    integer, intent(inout) :: flag(n), isur(n), ic(n), surna(nk, n)
+    real (kind=8), intent(inout) :: ra(n), dec(n), d_ra(n), d_dec(n), r(n), &
+         delta(n), m_int(n), m_rand(n), eff(n), mt(n), jdayp(n), h_rand(n)
+    integer, intent(out) :: ierr
+
+    type(t_orb_m) :: o_m
+    character(key_len) :: key
+    integer :: i, j, seed_i, ierr_i
+
+    ierr = 0
+    do i = 1, n
+       o_m%a = a(i)
+       o_m%e = e(i)
+       o_m%inc = inc(i)
+       o_m%node = node(i)
+       o_m%peri = peri(i)
+       o_m%m = m(i)
+       seed_i = seed
+       call Detos1 (o_m, jday(i), hx(i), color(:, i), gb(i), ph(i), &
+            period(i), amp(i), surnam, seed_i, enable_debug, &
+            flag(i), ra(i), dec(i), d_ra(i), d_dec(i), r(i), delta(i), &
+            m_int(i), m_rand(i), eff(i), isur(i), mt(i), jdayp(i), ic(i), &
+            key, h_rand(i), ierr_i)
+       do j = 1, nk
+          if (j .le. key_len) then
+             surna(j, i) = iachar(key(j:j))
+          else
+             surna(j, i) = iachar(' ')
+          end if
+       end do
+       if (ierr_i .ne. 0) then
+          ierr = ierr_i
+          return
+       end if
+    end do
+    return
+  end subroutine Detos_batch
+
   subroutine reset_simulator()
           first = .true.
           iff = 0
