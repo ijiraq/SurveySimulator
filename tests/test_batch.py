@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile
 
 import numpy
 from astropy import units
-from astropy.table import QTable
+from astropy.table import QTable, Table
 from astropy.units import Quantity
 
 import ossssim
@@ -84,6 +84,29 @@ class ChunkedSimulateTest(unittest.TestCase):
 
     def test_dict_chunks_match_rows(self):
         self._assert_same(self._per_row(), self._chunked(as_dict=True))
+
+    def test_plain_table_units_are_converted(self):
+        """A plain Table carries units on Column objects rather than as Quantity; they must still be used."""
+        model = ossssim.ModelFile(self.model_filename)
+        qtable = next(model.iter_chunks(600))
+        model.close()
+        table = Table(qtable)
+        self.assertNotIsInstance(table['inc'], Quantity)
+        self.assertEqual(table['inc'].unit, units.deg)
+        kwargs = dict(colors=model.colors, model_band=model.model_band, epoch=model.epoch)
+
+        expected = ossssim.OSSSSim(characterization_directory=str(CFEPS_DIR), seed=SEED).simulate(qtable, **kwargs)
+        from_table = ossssim.OSSSSim(characterization_directory=str(CFEPS_DIR), seed=SEED).simulate(table, **kwargs)
+        self.assertIsInstance(from_table, Table)
+        sim = ossssim.OSSSSim(characterization_directory=str(CFEPS_DIR), seed=SEED)
+        from_rows = [sim.simulate(row, **kwargs) for row in table]
+
+        self.assertGreater((expected['flag'] > 0).sum(), 0)
+        for name in ('flag', 'RA', 'DEC', 'm_rand', 'Mt', 'x', 'vz'):
+            numpy.testing.assert_array_equal(_values(from_table[name]).astype(float),
+                                             _values(expected[name]).astype(float), err_msg=name)
+            rows = numpy.array([float(_values(row.get(name, numpy.nan))) for row in from_rows])
+            numpy.testing.assert_array_equal(rows, _values(expected[name]).astype(float), err_msg=name)
 
     def test_single_row_types(self):
         types = {'flag': int, 'd_ra': float, 'd_dec': float, 'eff': float, 'Survey': str, 'band': str,

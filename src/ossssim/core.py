@@ -5,7 +5,7 @@ The OSSOS Survey Simulator module.  This is front-end for the OSSSim.  The prima
 import logging
 from astropy import units as u
 from astropy.units import Quantity
-from astropy.table import Row, Table
+from astropy.table import Column, Row, Table
 from astropy.time import Time
 
 from .color import PhotSpec
@@ -22,13 +22,21 @@ _SURVEY_KEY_CODES = 128
 _UNIT_SCALES = {}
 
 
+def _as_quantity(value):
+    """A Table Column that carries a unit as a Quantity; anything else unchanged."""
+    if isinstance(value, Column) and value.unit is not None:
+        return value.quantity
+    return value
+
+
 def _to_value(value, unit):
     """
-    Value of a Quantity in unit (plain numbers are returned unchanged).
+    Value of a Quantity (or a Column with a unit) in unit; plain numbers are returned unchanged.
 
     Same result as value.to(unit).value, but the unit scale factor is looked up
     once per pair of units instead of on every call.
     """
+    value = _as_quantity(value)
     if not isinstance(value, Quantity):
         return value
     from_unit = value.unit
@@ -58,6 +66,14 @@ _OUTPUT_UNITS = {'RA': u.rad, 'DEC': u.rad, 'r': u.au, 'delta': u.au, 'm_int': u
                  'm_rand': u.mag, 'Mt': u.rad, 'h_rand': u.mag}
 _CARTESIAN_UNITS = {'x': u.au, 'y': u.au, 'z': u.au,
                     'vx': u.au / u.year, 'vy': u.au / u.year, 'vz': u.au / u.year}
+
+
+def _row_units(row) -> dict:
+    """Units of the unit-bearing plain Columns behind an astropy Row ({} for anything else)."""
+    if not isinstance(row, Row):
+        return {}
+    return {name: column.unit for name, column in row.table.columns.items()
+            if isinstance(column, Column) and column.unit is not None}
 
 
 def _survey_key(codes) -> str:
@@ -280,17 +296,22 @@ class OSSSSim:
 
     def _simulate_row(self, row, colors: PhotSpec, model_band, epoch, debug) -> dict:
         """simulate() for a single row: the row is passed to Fortran as a chunk of one."""
+        units = _row_units(row)
         row = dict(row)
+        # A Row of a plain Table gives bare numbers; put its columns' units back for the conversions
+        # below, while the returned row keeps the values it was given.
+        values = row if not units else {name: Quantity(value, units[name]) if name in units else value
+                                        for name, value in row.items()}
         elements = {}
-        for colname, value in row.items():
+        for colname, value in values.items():
             field = colname.lower()
             if field in T_ORB_M_FIELDS:
                 elements[field] = _to_value(value, T_ORB_M_UNITS.get(colname))
         H = None
-        if 'H' in row:
-            H = _to_value(row['H'], u.mag) or None
-        if H is None and 'h' in row:
-            H = _to_value(row['h'], u.mag) or None
+        if 'H' in values:
+            H = _to_value(values['H'], u.mag) or None
+        if H is None and 'h' in values:
+            H = _to_value(values['h'], u.mag) or None
         if H is None:
             raise ValueError("H or h must be provided to simulate")
 
@@ -301,10 +322,10 @@ class OSSSSim:
         element_buffers, jday, H_buffer, light_curve, out = self._row_buffers
         for buffer, field in zip(element_buffers, T_ORB_M_FIELDS):
             buffer[0] = elements.get(field, 0.0)
-        jday[0] = self._jd(row['epoch'] if 'epoch' in row.keys() else epoch)
+        jday[0] = self._jd(values['epoch'] if 'epoch' in values else epoch)
         H_buffer[0] = H
         for buffer, key in zip(light_curve, _LIGHT_CURVE_UNITS):
-            buffer[0] = _light_curve_value(row, key)
+            buffer[0] = _light_curve_value(values, key)
         color = colors.colors_array(row['comp'], model_band).reshape(-1, 1)
 
         self._detos(element_buffers, jday, H_buffer, color, light_curve, debug, out)
@@ -412,6 +433,7 @@ class OSSSSim:
 
     def _jd(self, epoch):
         """JD of an epoch given as Time, Quantity or a plain number (or arrays of these)."""
+        epoch = _as_quantity(epoch)
         if isinstance(epoch, Quantity):
             return _to_value(epoch, u.day)
         if isinstance(epoch, Time):
