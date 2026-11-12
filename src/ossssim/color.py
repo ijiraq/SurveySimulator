@@ -68,6 +68,15 @@ class PhotSpec:
         self.colors = colors
 
     @property
+    def colors(self) -> dict:
+        return self._colors
+
+    @colors.setter
+    def colors(self, value: dict):
+        self._colors = value
+        self._colors_list_cache = {}
+
+    @property
     def spectral_groups(self) -> list:
         return list(self.colors)
 
@@ -112,7 +121,25 @@ class PhotSpec:
         This is used to create the list of colors that is passed into the Fortran component of SSim.
         Layout matches Fortran ``filter_to_index``: Python index ``ord(L)-ord('A')`` is Fortran
         index ``IACHAR(L)-IACHAR('A')+1`` when the list is passed through f2py.
+
+        Results are cached per (orbital_group, model_band); assigning ``colors`` clears the cache,
+        changing the dictionary in place does not.
         """
+        return list(self.colors_array(orbital_group, model_band))
+
+    def colors_array(self, orbital_group: str, model_band: str) -> numpy.ndarray:
+        """
+        The colors_list values as a read-only float64 array, cached per (orbital_group, model_band).
+        """
+        key = (orbital_group, model_band)
+        cached = self._colors_list_cache.get(key)
+        if cached is None:
+            cached = numpy.array(self._colors_list(orbital_group, model_band), dtype=numpy.float64)
+            cached.flags.writeable = False
+            self._colors_list_cache[key] = cached
+        return cached
+
+    def _colors_list(self, orbital_group: str, model_band: str) -> list:
         spec_phot_list = numpy.zeros(ord('z')-ord('A')+1) * units.mag
         colors = self.transform_spectral_group_to_model_band(self.orbital_to_spectral_group(orbital_group), model_band)
         for band_ratio in colors:
